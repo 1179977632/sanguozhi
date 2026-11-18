@@ -387,8 +387,8 @@ function getLandTerrain(lon: number, lat: number, seed: number): { terrain: Terr
   if (pass) return { terrain: 'hill', landform: pass.name }
   const range = closestMountainRange(lon, lat)
   const noise = smoothNoise(seed, lon, lat)
-  if (range && range.distance < range.range.width * 1.65) {
-    const core = range.distance < range.range.width * (0.34 + noise * 0.18)
+  if (range && range.distance < range.range.width * (1.25 + noise * 0.62)) {
+    const core = range.distance < range.range.width * (0.28 + noise * 0.46)
     return { terrain: core ? 'mountain' : 'hill', landform: range.range.name }
   }
   const marsh = MARSH_REGIONS.find((region) => pointInPolygon(lon, lat, region))
@@ -483,9 +483,17 @@ function findMountainPass(lon: number, lat: number): { name: string } | undefine
 }
 
 /** 以格网低频平滑噪声形成连续山脊、林缘与湿地过渡。 */
+/** 叠加两种空间尺度的平滑噪声，打散规则边界而不产生椒盐状单格孤岛。 */
 function smoothNoise(seed: number, lon: number, lat: number): number {
-  const x = (lon - GEO_LEFT) * GEO_SCALE_X / 8
-  const y = (GEO_TOP - lat) * GEO_SCALE_Y / 8
+  const broad = sampleNoise(seed, lon, lat, 8)
+  const detail = sampleNoise(seed + 7919, lon + 1.37, lat - 0.83, 3.5)
+  return broad * 0.68 + detail * 0.32
+}
+
+/** 在指定地理尺度上双线性插值稳定噪声。 */
+function sampleNoise(seed: number, lon: number, lat: number, scale: number): number {
+  const x = (lon - GEO_LEFT) * GEO_SCALE_X / scale
+  const y = (GEO_TOP - lat) * GEO_SCALE_Y / scale
   const x0 = Math.floor(x)
   const y0 = Math.floor(y)
   const tx = smoothStep(x - x0)

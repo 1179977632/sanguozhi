@@ -307,19 +307,6 @@ function drawRelief(context: CanvasRenderingContext2D): void {
     context.fillText(lake.name, label.x, label.y)
   }
   for (const range of MOUNTAIN_RANGES) {
-    const points = range.points.map(({ lon, lat }) => geoToPixel(lon, lat))
-    context.strokeStyle = 'rgba(119,102,74,.18)'
-    context.lineWidth = Math.max(HEX_SIZE * 0.9, range.width * 35 * Math.cos(range.label.lat * Math.PI / 180))
-    context.beginPath()
-    points.forEach(({ x, y }, index) => index ? context.lineTo(x, y) : context.moveTo(x, y))
-    context.stroke()
-    context.strokeStyle = 'rgba(108,91,67,.54)'
-    context.lineWidth = HEX_SIZE * 0.24
-    context.setLineDash([HEX_SIZE * 1.3, HEX_SIZE * 0.8])
-    context.beginPath()
-    points.forEach(({ x, y }, index) => index ? context.lineTo(x, y) : context.moveTo(x, y))
-    context.stroke()
-    context.setLineDash([])
     const label = geoToPixel(range.label.lon, range.label.lat)
     context.fillStyle = 'rgba(91,75,57,.8)'
     context.font = `${11 / state.zoom}px "Noto Serif SC", serif`
@@ -365,22 +352,34 @@ function drawTile(context: CanvasRenderingContext2D, tile: HexTile): void {
       context.fill()
     }
   } else if (tile.terrain === 'hill' || tile.terrain === 'mountain') {
-    context.strokeStyle = '#746957'
-    context.lineWidth = tile.terrain === 'mountain' ? 1.5 : 0.8
-    context.beginPath()
-    context.moveTo(-4, 2)
-    context.lineTo(-1, -1)
-    context.lineTo(1.1, 2)
-    context.moveTo(-0.5, 2)
-    context.lineTo(2.3, -3)
-    context.lineTo(4.5, 2)
-    if (tile.terrain === 'mountain') {
-      context.moveTo(-1.2, -0.6)
-      context.lineTo(-0.4, 0.4)
-      context.moveTo(2.3, -3)
-      context.lineTo(3.3, -0.3)
+    const tileSeed = Math.abs(tile.q * 73 + tile.r * 151 + tile.q * tile.r * 19)
+    const peakCount = tile.terrain === 'mountain' ? 2 + tileSeed % 2 : 1 + tileSeed % 2
+    for (let peak = 0; peak < peakCount; peak++) {
+      const peakSeed = (tileSeed + peak * 17) % 29
+      const peakX = peakCount === 1 ? (peakSeed % 5) - 2 : -2.7 + peak * 3 + (peakSeed % 3) * 0.35
+      const peakY = -1.4 + (peakSeed % 4) * 0.32
+      const width = 1.8 + peakSeed % 4 * 0.42
+      const height = (tile.terrain === 'mountain' ? 2.9 : 1.8) + peakSeed % 4 * 0.38
+      context.beginPath()
+      context.moveTo(peakX - width, 2.7)
+      context.lineTo(peakX - width * 0.23, peakY - height)
+      context.lineTo(peakX + width * 0.12, peakY - height * 0.18)
+      context.lineTo(peakX + width * 0.35, peakY - height * 0.62)
+      context.lineTo(peakX + width, 2.7)
+      context.closePath()
+      context.fillStyle = peakSeed % 2 ? '#81755f' : '#93866a'
+      context.fill()
+      context.strokeStyle = '#675c4c'
+      context.lineWidth = tile.terrain === 'mountain' ? 0.52 : 0.34
+      context.stroke()
+      context.beginPath()
+      context.moveTo(peakX - width * 0.23, peakY - height)
+      context.lineTo(peakX + width * 0.12, peakY - height * 0.18)
+      context.lineTo(peakX + width * 0.35, peakY - height * 0.62)
+      context.strokeStyle = tile.terrain === 'mountain' ? '#e2ddc8' : '#c7bd9c'
+      context.lineWidth = 0.42
+      context.stroke()
     }
-    context.stroke()
   } else if (tile.terrain === 'marsh') {
     context.strokeStyle = '#527b76'
     context.lineWidth = 1
