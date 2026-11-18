@@ -283,18 +283,23 @@ function drawRelief(context: CanvasRenderingContext2D): void {
       index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y)
     })
     context.closePath()
-    lake.islands?.forEach((island) => {
-      island.forEach(({ lon, lat }, index) => {
-        const point = geoToPixel(lon, lat)
-        index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y)
-      })
-      context.closePath()
-    })
     context.fillStyle = 'rgba(103,157,153,.34)'
     context.fill('evenodd')
     context.strokeStyle = '#548a87'
     context.lineWidth = HEX_SIZE * 0.18
     context.stroke()
+    lake.islands?.forEach((island) => {
+      context.beginPath()
+      island.forEach(({ lon, lat }, index) => {
+        const point = geoToPixel(lon, lat)
+        index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y)
+      })
+      context.closePath()
+      context.fillStyle = 'rgba(200,197,141,.92)'
+      context.fill()
+      context.strokeStyle = '#548a87'
+      context.stroke()
+    })
     const label = geoToPixel(lake.label.lon, lake.label.lat)
     context.fillStyle = '#426f72'
     context.font = `${11 / state.zoom}px "Noto Serif SC", serif`
@@ -304,7 +309,7 @@ function drawRelief(context: CanvasRenderingContext2D): void {
   for (const range of MOUNTAIN_RANGES) {
     const points = range.points.map(({ lon, lat }) => geoToPixel(lon, lat))
     context.strokeStyle = 'rgba(119,102,74,.18)'
-    context.lineWidth = Math.max(HEX_SIZE * 0.9, range.width * 24)
+    context.lineWidth = Math.max(HEX_SIZE * 0.9, range.width * 35 * Math.cos(range.label.lat * Math.PI / 180))
     context.beginPath()
     points.forEach(({ x, y }, index) => index ? context.lineTo(x, y) : context.moveTo(x, y))
     context.stroke()
@@ -335,7 +340,7 @@ function drawTile(context: CanvasRenderingContext2D, tile: HexTile): void {
   context.fill()
   context.globalAlpha = 1
   context.strokeStyle = 'rgba(83,83,71,.2)'
-  context.lineWidth = 0.09
+  context.lineWidth = HEX_SIZE * 0.025
   context.stroke()
   if (state.terrainFilter !== 'all' && filtered) {
     context.beginPath()
@@ -486,12 +491,13 @@ function drawCityTerritories(context: CanvasRenderingContext2D, visibleTiles: He
     const selected = city.id === state.city.id
     const color = `#${FACTIONS[city.faction].ink.toString(16).padStart(6, '0')}`
     context.save()
-    context.beginPath()
-    for (const tile of footprint) pathHex(context, tile.x, tile.y, HEX_SIZE)
-    context.clip()
     context.fillStyle = selected ? '#f4dfaa' : FACTIONS[city.faction].color
-    context.globalAlpha = selected ? 0.58 : 0.3
-    context.fill()
+    context.globalAlpha = selected ? 0.42 : 0.23
+    for (const tile of footprint) {
+      context.beginPath()
+      pathHex(context, tile.x, tile.y, HEX_SIZE * 0.96)
+      context.fill()
+    }
     context.globalAlpha = 1
     context.strokeStyle = color
     context.lineWidth = HEX_SIZE * 0.1
@@ -506,7 +512,7 @@ function drawCityTerritories(context: CanvasRenderingContext2D, visibleTiles: He
         context.lineTo(tile.x + Math.cos(endAngle) * HEX_SIZE, tile.y + Math.sin(endAngle) * HEX_SIZE)
       }
     }
-    context.lineWidth = HEX_SIZE * (selected ? 0.52 : 0.34)
+    context.lineWidth = HEX_SIZE * (selected ? 0.15 : 0.11)
     context.lineJoin = 'miter'
     context.stroke()
     context.restore()
@@ -683,7 +689,7 @@ function updateSelection(): void {
       <div><span>地理坐标</span><strong>${city.lat.toFixed(1)}° N　${city.lon.toFixed(1)}° E</strong></div>
     </div>` : `
     <div class="inspector-place"><span class="inspector-label">${tile.cityCenter ? '城池中心' : '野外地块'}</span><strong>${terrain.name}</strong></div>
-    <h2 class="inspector-name">${terrain.name}<span>野外地形</span></h2>
+    <h2 class="inspector-name">${terrain.name}<span>${tile.landform ?? '野外地形'}</span></h2>
     <p class="inspector-copy">${terrain.hint}</p>
     <div class="inspector-facts">
       <div><span>步兵消耗</span><strong>${getCost(tile, 'infantry')}</strong></div>

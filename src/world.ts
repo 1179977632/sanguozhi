@@ -45,6 +45,9 @@ export interface World {
 
 interface CityRecord extends Omit<City, 'q' | 'r' | 'tileKeys'> {}
 interface GeoPoint { lon: number; lat: number }
+interface GeoBounds { minLon: number; maxLon: number; minLat: number; maxLat: number }
+
+const polygonBounds = new WeakMap<GeoPoint[], GeoBounds>()
 
 export const HEX_SIZE = 1.2
 
@@ -107,6 +110,13 @@ export const MOUNTAIN_RANGES: { name: string; points: GeoPoint[]; width: number;
   { name: '大別山', width: 0.28, label: { lon: 115.4, lat: 31.95 }, points: [{ lon: 113.8, lat: 31.8 }, { lon: 114.8, lat: 31.45 }, { lon: 115.8, lat: 31.35 }, { lon: 116.8, lat: 31.6 }] },
   { name: '武夷山', width: 0.3, label: { lon: 117.7, lat: 27.7 }, points: [{ lon: 116.8, lat: 25.5 }, { lon: 117.25, lat: 26.3 }, { lon: 117.8, lat: 27.2 }, { lon: 118.3, lat: 28.2 }, { lon: 118.8, lat: 29.0 }] },
 ]
+
+const MOUNTAIN_RANGE_BOUNDS = new Map(MOUNTAIN_RANGES.map((range) => [range, {
+  minLon: Math.min(...range.points.map((point) => point.lon)) - range.width * 2,
+  maxLon: Math.max(...range.points.map((point) => point.lon)) + range.width * 2,
+  minLat: Math.min(...range.points.map((point) => point.lat)) - range.width * 2,
+  maxLat: Math.max(...range.points.map((point) => point.lat)) + range.width * 2,
+}]))
 
 const MOUNTAIN_PASSES: { name: string; lon: number; lat: number; radius: number }[] = [
   { name: '褒斜道', lon: 107.25, lat: 33.65, radius: 0.22 },
@@ -258,7 +268,7 @@ export function createWorld(seed = 189): World {
       const land = isLand(geo.lon, geo.lat)
       const key = hexKey(q, r)
       if (!land && !isNearCoast(geo.lon, geo.lat)) continue
-      const detail = land ? getLandTerrain(geo.lon, geo.lat, seed, q, r) : { terrain: 'coast' as TerrainId, landform: '近海' }
+      const detail = land ? getLandTerrain(geo.lon, geo.lat, seed) : { terrain: 'coast' as TerrainId, landform: '近海' }
       tiles.set(key, { q, r, x: point.x, y: point.y, lon: round2(geo.lon), lat: round2(geo.lat), ...detail })
     }
   }
@@ -368,22 +378,24 @@ function isNearCoast(lon: number, lat: number): boolean {
 }
 
 /** 依據河道、湖岸、多段山脊和連片植被濕地分類地塊，並保留具名地貌。 */
-function getLandTerrain(lon: number, lat: number, seed: number, q: number, r: number): { terrain: TerrainId; landform: string } {
-  const lake = LAKES.find((candidate) => pointInPolygon(lon, lat, candidate.points))
+function getLandTerrain(lon: number, lat: number, seed: number): { terrain: TerrainId; landform: string } {
+  const lake = LAKES.find((candidate) => pointInPolygon(lon, lat, candidate.points) && !candidate.islands?.some((island) => pointInPolygon(lon, lat, island)))
   if (lake) return { terrain: 'lake', landform: lake.name }
   const river = closestRiverDistance(lon, lat)
-  if (river.distance < river.width * 0.58) return { terrain: 'river', landform: river.name }
+  if (river.name && river.distance < river.width * 0.58) return { terrain: 'river', landform: river.name }
+  const pass = findMountainPass(lon, lat)
+  if (pass) return { terrain: 'hill', landform: pass.name }
   const range = closestMountainRange(lon, lat)
   const noise = smoothNoise(seed, lon, lat)
-  if (range && range.distance < range.width * 1.65 && !inPassCorridor(lon, lat)) {
-    const core = range.distance < range.width * (0.34 + noise * 0.18)
+  if (range && range.distance < range.range.width * 1.65) {
+    const core = range.distance < range.range.width * (0.34 + noise * 0.18)
     return { terrain: core ? 'mountain' : 'hill', landform: range.range.name }
   }
   const marsh = MARSH_REGIONS.find((region) => pointInPolygon(lon, lat, region))
   if (marsh && noise > 0.27) return { terrain: 'marsh', landform: '江湖泽地' }
   const forest = FOREST_REGIONS.find((region) => pointInPolygon(lon, lat, region))
   if (forest && noise > 0.23) return { terrain: 'forest', landform: '山地林区' }
-  const lowland = NAMED_LOWLANDS.find((region) => pointInPolygon(lon, lat, region))
+  const lowland = NAMED_LOWLANDS.find((region) => pointInPolygon(lon, lat, region.points))
   if (lowland) return { terrain: noise > 0.91 ? 'hill' : 'plain', landform: lowland.name }
   if (noise > 0.93) return { terrain: 'hill', landform: '丘陵地' }
   return { terrain: 'plain', landform: '平原' }
@@ -397,7 +409,7 @@ function findCityCenter(x: number, y: number, tiles: Map<string, HexTile>, reser
     for (let dr = -10; dr <= 10; dr++) {
       if (Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)) > 10) continue
       const tile = tiles.get(hexKey(q + dq, r + dr))
-      if (!tile || !['plain', 'forest', 'hill', 'marsh'].includes(tile.terrain)) continue
+      if (!tile || !['plain', 'forest', 'hill'].includes(tile.terrain)) continue
       const footprint = CITY_OFFSETS.map(([oq, or]) => tiles.get(hexKey(tile.q + oq, tile.r + or)))
       if (footprint.some((entry) => !entry || entry.terrain === 'coast' || entry.terrain === 'lake' || reserved.has(hexKey(entry.q, entry.r)))) continue
       const distance = Math.hypot(tile.x - x, tile.y - y)
@@ -420,13 +432,15 @@ function rasterizeRivers(tiles: Map<string, HexTile>): void {
         const t = step / steps
         const hex = pixelToHex(start.x + (end.x - start.x) * t, start.y + (end.y - start.y) * t)
         const tile = tiles.get(hexKey(hex.q, hex.r))
-        if (tile && tile.terrain !== 'lake' && tile.terrain !== 'coast') tile.terrain = 'river'
+        if (tile && tile.terrain !== 'lake' && tile.terrain !== 'coast') {
+          tile.terrain = 'river'
+          tile.landform = river.name
+        }
       }
     }
   }
 }
 
-/** 求最近主要水系到所给点的角度加权距离。 */
 /** 返回最近河段及其河名和宽度，并以线段包围盒跳过远处水系。 */
 function closestRiverDistance(lon: number, lat: number): { distance: number; width: number; name: string } {
   let closest = { distance: Infinity, width: 0, name: '' }
@@ -436,8 +450,8 @@ function closestRiverDistance(lon: number, lat: number): { distance: number; wid
     for (let index = 1; index < river.points.length; index++) {
       const first = river.points[index - 1]!
       const second = river.points[index]!
-      const minX = Math.min(first.lon, second.lon) * longitudeScale - river.width * 2
-      const maxX = Math.max(first.lon, second.lon) * longitudeScale + river.width * 2
+      const minX = Math.min(first.lon, second.lon) * longitudeScale - river.width * 2 * longitudeScale
+      const maxX = Math.max(first.lon, second.lon) * longitudeScale + river.width * 2 * longitudeScale
       if (pointX < minX || pointX > maxX || lat < Math.min(first.lat, second.lat) - river.width * 2 || lat > Math.max(first.lat, second.lat) + river.width * 2) continue
       const distance = segmentDistance(pointX, lat, first.lon * longitudeScale, first.lat, second.lon * longitudeScale, second.lat)
       if (distance < closest.distance) closest = { distance, width: river.width, name: river.name }
@@ -451,9 +465,8 @@ function closestMountainRange(lon: number, lat: number): { range: typeof MOUNTAI
   let closest: { range: typeof MOUNTAIN_RANGES[number]; distance: number } | undefined
   const longitudeScale = Math.cos(lat * Math.PI / 180)
   for (const range of MOUNTAIN_RANGES) {
-    const longitudes = range.points.map((point) => point.lon)
-    const latitudes = range.points.map((point) => point.lat)
-    if (lon < Math.min(...longitudes) - range.width * 2 || lon > Math.max(...longitudes) + range.width * 2 || lat < Math.min(...latitudes) - range.width * 2 || lat > Math.max(...latitudes) + range.width * 2) continue
+    const bounds = MOUNTAIN_RANGE_BOUNDS.get(range)!
+    if (lon < bounds.minLon || lon > bounds.maxLon || lat < bounds.minLat || lat > bounds.maxLat) continue
     for (let index = 1; index < range.points.length; index++) {
       const first = range.points[index - 1]!
       const second = range.points[index]!
@@ -464,9 +477,9 @@ function closestMountainRange(lon: number, lat: number): { range: typeof MOUNTAI
   return closest
 }
 
-/** 将明确的古道隘口设为丘陵走廊，保证山脉中存在连通路线。 */
-function inPassCorridor(lon: number, lat: number): boolean {
-  return MOUNTAIN_PASSES.some((pass) => Math.hypot((lon - pass.lon) * Math.cos(lat * Math.PI / 180), lat - pass.lat) < pass.radius)
+/** 返回坐落于已记录古道隘口附近的地块地貌名称。 */
+function findMountainPass(lon: number, lat: number): { name: string } | undefined {
+  return MOUNTAIN_PASSES.find((pass) => Math.hypot((lon - pass.lon) * Math.cos(lat * Math.PI / 180), lat - pass.lat) < pass.radius)
 }
 
 /** 以格网低频平滑噪声形成连续山脊、林缘与湿地过渡。 */
@@ -495,9 +508,6 @@ function segmentDistance(px: number, py: number, ax: number, ay: number, bx: num
   const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / denominator))
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
 }
-
-/** 計算旋轉地形橢圓內位置以形成河谷山脈與湖泊。 */
-
 
 /** 以缓存的地理包围盒和射线穿越法判断地理位置是否落在多边形内。 */
 function pointInPolygon(lon: number, lat: number, polygon: GeoPoint[]): boolean {
