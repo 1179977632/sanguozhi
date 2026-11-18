@@ -42,7 +42,7 @@ app.innerHTML = `
       </aside>
 
       <section class="map-shell" aria-label="三国战略地图">
-        <div class="map-ribbon"><div class="map-edition"><strong>漢末山川圖</strong><em>山川城邑 · 總覽</em></div><div class="map-coordinates"><span id="coordinates">北緯 30°　東經 104°</span><span class="map-coordinate-seal">天地四方 · 州郡可行</span></div></div>
+        <div class="map-ribbon"><div class="map-edition"><strong>漢末山川圖</strong><em>建安五年 · 成都近覽</em></div><div class="map-coordinates"><span id="coordinates">北緯 30°　東經 104°</span><span class="map-coordinate-seal">天地四方 · 州郡可行</span></div></div>
         <div class="map-status"><i class="map-status-dot"></i><span id="status-line">拖動以遊覽地圖 · 滾輪縮放</span></div>
         <div class="canvas-wrap"><canvas id="map" aria-label="尖顶六边形三国地形地图，可拖动浏览并点击地块" tabindex="0"></canvas></div>
         <div class="map-compass">北<span>↑</span></div>
@@ -50,10 +50,10 @@ app.innerHTML = `
           <button id="locate-city" class="tool-button" type="button" aria-label="定位所选城池" title="定位所选城池"><i data-lucide="locate-fixed"></i></button>
           <button id="zoom-in" class="tool-button" type="button" aria-label="放大地图" title="放大"><i data-lucide="plus"></i></button>
           <button id="zoom-out" class="tool-button" type="button" aria-label="缩小地图" title="缩小"><i data-lucide="minus"></i></button>
-          <span class="zoom-readout" id="zoom-readout">55%</span><span class="toolbar-divider"></span>
+          <span class="zoom-readout" id="zoom-readout">160%</span><span class="toolbar-divider"></span>
           <button id="reset-map" class="tool-button" type="button" aria-label="重置地图视角" title="重置视角"><i data-lucide="expand"></i></button>
         </div>
-        <div class="map-scale" id="map-scale">約 200 里</div>
+        <div class="map-scale" id="map-scale">約 130 里</div>
         <div class="map-legend"><div class="map-legend-title">山川地势</div><div class="terrain-swatches">
           <span class="terrain-item"><i class="terrain-swatch" style="background:#c8c58d"></i>平原</span><span class="terrain-item"><i class="terrain-swatch" style="background:#8eaa7d"></i>林地</span><span class="terrain-item"><i class="terrain-swatch" style="background:#b69b76"></i>山地</span><span class="terrain-item"><i class="terrain-swatch" style="background:#7f8280"></i>山脉</span><span class="terrain-item"><i class="terrain-swatch" style="background:#8bb2a2"></i>江河湖泊</span><span class="terrain-item"><i class="terrain-swatch" style="background:#a6baaa"></i>沼澤</span>
         </div></div>
@@ -191,13 +191,25 @@ function resizeMap(): void {
   }
   mapCanvas.style.width = `${width}px`
   mapCanvas.style.height = `${height}px`
-  if (!state.positionReady) fitMap()
+  if (!state.positionReady) focusCity(initialCity, 1.6)
   else {
     state.panX += (width - viewportWidth) / 2
     state.panY += (height - viewportHeight) / 2
   }
   viewportWidth = width
   viewportHeight = height
+  scheduleMap()
+}
+
+/** 以指定城池为中心打开区域近景，突出周边行军格距。 */
+function focusCity(city: City, zoom: number): void {
+  const bounds = mapCanvas.parentElement!.getBoundingClientRect()
+  const center = hexToPixel(city.q, city.r)
+  state.zoom = Phaser.Math.Clamp(zoom, 0.38, 2.2)
+  state.panX = bounds.width / 2 - center.x * state.zoom
+  state.panY = bounds.height / 2 - center.y * state.zoom
+  state.positionReady = true
+  document.querySelector<HTMLElement>('.map-edition em')!.textContent = `建安五年 · ${city.name}近覽`
   scheduleMap()
 }
 
@@ -213,6 +225,7 @@ function fitMap(): void {
   state.panX = bounds.width / 2 - (left + right) / 2 * state.zoom
   state.panY = 75 + (bounds.height - 155) / 2 - (top + bottom) / 2 * state.zoom
   state.positionReady = true
+  document.querySelector<HTMLElement>('.map-edition em')!.textContent = '建安五年 · 全域總覽'
   scheduleMap()
 }
 
@@ -319,44 +332,47 @@ function drawTile(context: CanvasRenderingContext2D, tile: HexTile): void {
     context.stroke()
   }
   if (!state.showRelief || tile.cityCenter) return
+  context.save()
+  context.translate(x, y)
+  context.scale(HEX_SIZE / 9, HEX_SIZE / 9)
   context.globalAlpha = 0.34
   if (tile.terrain === 'forest') {
     context.fillStyle = '#3d6552'
     context.beginPath()
-    context.moveTo(x, y - 4)
-    context.lineTo(x - 3, y + 3)
-    context.lineTo(x + 3, y + 3)
+    context.moveTo(0, -4)
+    context.lineTo(-3, 3)
+    context.lineTo(3, 3)
     context.closePath()
     context.fill()
   } else if (tile.terrain === 'hill' || tile.terrain === 'mountain') {
     context.strokeStyle = '#746957'
     context.lineWidth = tile.terrain === 'mountain' ? 1.5 : 1
     context.beginPath()
-    context.moveTo(x - 4, y + 2)
-    context.lineTo(x, y - 3)
-    context.lineTo(x + 4, y + 2)
+    context.moveTo(-4, 2)
+    context.lineTo(0, -3)
+    context.lineTo(4, 2)
     if (tile.terrain === 'mountain') {
-      context.moveTo(x - 1.3, y + 2)
-      context.lineTo(x + 2, y - 1.5)
-      context.lineTo(x + 4.5, y + 2)
+      context.moveTo(-1.3, 2)
+      context.lineTo(2, -1.5)
+      context.lineTo(4.5, 2)
     }
     context.stroke()
   } else if (tile.terrain === 'marsh') {
     context.strokeStyle = '#527b76'
     context.lineWidth = 1
     context.beginPath()
-    context.moveTo(x - 3.5, y - 1)
-    context.quadraticCurveTo(x, y - 2.5, x + 3.5, y - 1)
-    context.moveTo(x - 3, y + 1.5)
-    context.quadraticCurveTo(x, y, x + 3, y + 1.5)
+    context.moveTo(-3.5, -1)
+    context.quadraticCurveTo(0, -2.5, 3.5, -1)
+    context.moveTo(-3, 1.5)
+    context.quadraticCurveTo(0, 0, 3, 1.5)
     context.stroke()
   } else if (tile.terrain === 'lake') {
     context.fillStyle = '#599193'
     context.beginPath()
-    context.ellipse(x, y, 3.7, 2.7, 0, 0, Math.PI * 2)
+    context.ellipse(0, 0, 3.7, 2.7, 0, 0, Math.PI * 2)
     context.fill()
   }
-  context.globalAlpha = 1
+  context.restore()
 }
 
 /** 追踪尖顶六边形轮廓。 */
@@ -416,10 +432,10 @@ function drawRivers(context: CanvasRenderingContext2D): void {
     context.beginPath()
     points.forEach(({ x, y }, index) => index ? context.lineTo(x, y) : context.moveTo(x, y))
     context.strokeStyle = '#c5ddd3'
-    context.lineWidth = Math.max(3, river.width * 22 + 2)
+    context.lineWidth = Math.max(2, river.width * (22 * HEX_SIZE / 9) + 1.5)
     context.stroke()
     context.strokeStyle = river.width >= 0.14 ? '#477d82' : '#56888a'
-    context.lineWidth = Math.max(1.2, river.width * 22)
+    context.lineWidth = Math.max(0.9, river.width * 22 * HEX_SIZE / 9)
     context.globalAlpha = 0.9
     context.stroke()
     const labelPoint = points[Math.floor(points.length / 2)]
@@ -450,7 +466,7 @@ function drawSeaLabels(context: CanvasRenderingContext2D): void {
 function drawCityTerritories(context: CanvasRenderingContext2D, visibleTiles: HexTile[]): void {
   const edgeIndices = [1, 0, 5, 4, 3, 2]
   context.save()
-  context.lineWidth = 1.8
+  context.lineWidth = 1.1
   for (const tile of visibleTiles) {
     if (!tile.cityId) continue
     const city = world.cities.find((entry) => entry.id === tile.cityId)
@@ -486,14 +502,15 @@ function drawCities(context: CanvasRenderingContext2D, visibleTiles: HexTile[]):
     const selected = state.city.id === city.id
     context.globalAlpha = selected ? 1 : 0.93
     context.beginPath()
-    context.arc(x, y, selected ? 7.5 : 6, 0, Math.PI * 2)
+    context.arc(x, y, selected ? HEX_SIZE * 0.82 : HEX_SIZE * 0.65, 0, Math.PI * 2)
     context.fillStyle = '#f5edda'
     context.fill()
     context.strokeStyle = `#${color.toString(16).padStart(6, '0')}`
-    context.lineWidth = selected ? 2 : 1.3
+    context.lineWidth = selected ? 1.2 : 0.8
     context.stroke()
     context.beginPath()
-    context.rect(x - 2.1, y - 2.1, 4.2, 4.2)
+    const markerSize = HEX_SIZE * 0.45
+    context.rect(x - markerSize / 2, y - markerSize / 2, markerSize, markerSize)
     context.fillStyle = `#${color.toString(16).padStart(6, '0')}`
     context.fill()
     context.globalAlpha = 1
@@ -615,10 +632,7 @@ function readMovementOptions(): MovementOptions {
 function selectCity(city: City): void {
   state.city = city
   state.selectedTile = world.tiles.get(hexKey(city.q, city.r)) ?? null
-  const bounds = mapCanvas.getBoundingClientRect()
-  const center = hexToPixel(city.q, city.r)
-  state.panX = bounds.width / 2 - center.x * state.zoom
-  state.panY = bounds.height / 2 - center.y * state.zoom
+  focusCity(city, Math.max(state.zoom, 1.6))
   updateSelection()
   renderCityList()
   if (window.matchMedia('(max-width: 820px)').matches) {

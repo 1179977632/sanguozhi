@@ -45,7 +45,7 @@ export interface World {
 interface CityRecord extends Omit<City, 'q' | 'r' | 'tileKeys'> {}
 interface GeoPoint { lon: number; lat: number }
 
-export const HEX_SIZE = 9
+export const HEX_SIZE = 3
 
 export const TERRAIN: Record<TerrainId, { name: string; color: number; cost: number; hint: string }> = {
   plain: { name: '平原', color: 0xc8c58d, cost: 1, hint: '沃野广阔，粮秣易集，步骑皆宜迅速通行。' },
