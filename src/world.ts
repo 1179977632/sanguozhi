@@ -10,6 +10,8 @@ export interface HexTile {
   lat: number
   terrain: TerrainId
   landform?: string
+  /** 地貌相对起伏度，0 为低地、1 为最高山核，用于渲染明暗与峰体密度。 */
+  relief?: number
   cityId?: string
   cityCenter?: boolean
 }
@@ -268,7 +270,7 @@ export function createWorld(seed = 189): World {
       const land = isLand(geo.lon, geo.lat)
       const key = hexKey(q, r)
       if (!land && !isNearCoast(geo.lon, geo.lat)) continue
-      const detail = land ? getLandTerrain(geo.lon, geo.lat, seed) : { terrain: 'coast' as TerrainId, landform: '近海' }
+      const detail = land ? getLandTerrain(geo.lon, geo.lat, seed) : { terrain: 'coast' as TerrainId, landform: '近海', relief: 0 }
       tiles.set(key, { q, r, x: point.x, y: point.y, lon: round2(geo.lon), lat: round2(geo.lat), ...detail })
     }
   }
@@ -377,28 +379,36 @@ function isNearCoast(lon: number, lat: number): boolean {
   })
 }
 
-/** 依據河道、湖岸、多段山脊和連片植被濕地分類地塊，並保留具名地貌。 */
-function getLandTerrain(lon: number, lat: number, seed: number): { terrain: TerrainId; landform: string } {
+/** 依據河道、湖岸、多段山脊和連片植被濕地分類地塊，並保留具名地貌與相對起伏。 */
+function getLandTerrain(lon: number, lat: number, seed: number): { terrain: TerrainId; landform: string; relief: number } {
   const lake = LAKES.find((candidate) => pointInPolygon(lon, lat, candidate.points) && !candidate.islands?.some((island) => pointInPolygon(lon, lat, island)))
-  if (lake) return { terrain: 'lake', landform: lake.name }
+  if (lake) return { terrain: 'lake', landform: lake.name, relief: 0 }
   const river = closestRiverDistance(lon, lat)
-  if (river.name && river.distance < river.width * 0.58) return { terrain: 'river', landform: river.name }
+  if (river.name && river.distance < river.width * 0.58) return { terrain: 'river', landform: river.name, relief: 0.02 }
   const pass = findMountainPass(lon, lat)
-  if (pass) return { terrain: 'hill', landform: pass.name }
+  if (pass) return { terrain: 'hill', landform: pass.name, relief: 0.3 }
   const range = closestMountainRange(lon, lat)
   const noise = smoothNoise(seed, lon, lat)
-  if (range && range.distance < range.range.width * (1.25 + noise * 0.62)) {
-    const core = range.distance < range.range.width * (0.28 + noise * 0.46)
-    return { terrain: core ? 'mountain' : 'hill', landform: range.range.name }
+  if (range) {
+    const rangeSeed = seed + nameSeed(range.range.name)
+    // 大尺度起伏让山体时宽时窄、成团成峰；小尺度噪声把山麓边缘打碎。
+    const massif = sampleNoise(rangeSeed, lon, lat, 26)
+    const foot = sampleNoise(rangeSeed + 4177, lon, lat, 5)
+    const reach = range.range.width * (1.3 + massif * 1.0 + foot * 0.32)
+    if (range.distance < reach) {
+      const core = range.range.width * (0.5 + massif * 0.8 + foot * 0.18)
+      if (range.distance < core) return { terrain: 'mountain', landform: range.range.name, relief: 0.62 + massif * 0.3 + foot * 0.08 }
+      return { terrain: 'hill', landform: range.range.name, relief: 0.28 + massif * 0.34 + foot * 0.12 }
+    }
   }
   const marsh = MARSH_REGIONS.find((region) => pointInPolygon(lon, lat, region))
-  if (marsh && noise > 0.27) return { terrain: 'marsh', landform: '江湖泽地' }
+  if (marsh && noise > 0.27) return { terrain: 'marsh', landform: '江湖泽地', relief: 0.04 }
   const forest = FOREST_REGIONS.find((region) => pointInPolygon(lon, lat, region))
-  if (forest && noise > 0.23) return { terrain: 'forest', landform: '山地林区' }
+  if (forest && noise > 0.23) return { terrain: 'forest', landform: '山地林区', relief: 0.16 + noise * 0.12 }
   const lowland = NAMED_LOWLANDS.find((region) => pointInPolygon(lon, lat, region.points))
-  if (lowland) return { terrain: noise > 0.91 ? 'hill' : 'plain', landform: lowland.name }
-  if (noise > 0.93) return { terrain: 'hill', landform: '丘陵地' }
-  return { terrain: 'plain', landform: '平原' }
+  if (lowland) return noise > 0.91 ? { terrain: 'hill', landform: lowland.name, relief: 0.18 } : { terrain: 'plain', landform: lowland.name, relief: 0.06 + noise * 0.06 }
+  if (noise > 0.93) return { terrain: 'hill', landform: '丘陵地', relief: 0.2 + noise * 0.16 }
+  return { terrain: 'plain', landform: '平原', relief: 0.05 + noise * 0.08 }
 }
 
 /** 在历史点十格范围内按实际像素距离选择可居住且完整七格未占用的城心。 */
@@ -482,7 +492,13 @@ function findMountainPass(lon: number, lat: number): { name: string } | undefine
   return MOUNTAIN_PASSES.find((pass) => Math.hypot((lon - pass.lon) * Math.cos(lat * Math.PI / 180), lat - pass.lat) < pass.radius)
 }
 
-/** 以格网低频平滑噪声形成连续山脊、林缘与湿地过渡。 */
+/** 将地名散列为稳定整数，作为各山脉独立的噪声相位。 */
+function nameSeed(name: string): number {
+  let value = 0
+  for (const char of name) value = (value * 131 + char.charCodeAt(0)) % 99991
+  return value
+}
+
 /** 叠加两种空间尺度的平滑噪声，打散规则边界而不产生椒盐状单格孤岛。 */
 function smoothNoise(seed: number, lon: number, lat: number): number {
   const broad = sampleNoise(seed, lon, lat, 8)

@@ -319,10 +319,20 @@ function drawRelief(context: CanvasRenderingContext2D): void {
 /** 在一枚尖顶六边形内标出高辨识度的地形色块和河湖水面。 */
 function drawTile(context: CanvasRenderingContext2D, tile: HexTile): void {
   const { x, y } = hexToPixel(tile.q, tile.r)
+  const tileSeed = Math.abs((tile.q * 73856093) ^ (tile.r * 19349663))
   const filtered = state.terrainFilter === 'all' || (state.terrainFilter === 'water' ? tile.terrain === 'river' || tile.terrain === 'lake' || tile.terrain === 'coast' : state.terrainFilter === 'highland' ? tile.terrain === 'hill' || tile.terrain === 'mountain' : state.terrainFilter === tile.terrain)
   context.beginPath()
   pathHex(context, x, y, HEX_SIZE - 0.035)
-  context.fillStyle = state.terrainFilter !== 'all' && !filtered ? '#e1e1d5' : `#${TERRAIN[tile.terrain].color.toString(16).padStart(6, '0')}`
+  // 每格轻微偏移同色系明度；起伏越高颜色越深，让山核与山麓形成层次。
+  const base = TERRAIN[tile.terrain].color
+  const relief = tile.relief ?? 0
+  const shift = (tileSeed % 9) - 4
+  const elevation = tile.terrain === 'mountain' ? -40 * Math.max(0, relief - 0.55) / 0.45 : tile.terrain === 'hill' ? -12 * Math.max(0, relief - 0.2) : 0
+  const tint = shift * 2 + elevation
+  const red = Math.max(0, Math.min(255, ((base >> 16) & 255) + tint))
+  const green = Math.max(0, Math.min(255, ((base >> 8) & 255) + tint))
+  const blue = Math.max(0, Math.min(255, (base & 255) + tint))
+  context.fillStyle = state.terrainFilter !== 'all' && !filtered ? '#e1e1d5' : `rgb(${red},${green},${blue})`
   context.globalAlpha = 0.97
   context.fill()
   context.globalAlpha = 1
@@ -340,26 +350,45 @@ function drawTile(context: CanvasRenderingContext2D, tile: HexTile): void {
   context.save()
   context.translate(x, y)
   context.scale(HEX_SIZE / 9, HEX_SIZE / 9)
-  context.globalAlpha = 0.34
-  if (tile.terrain === 'forest') {
+  context.globalAlpha = 0.5
+  if (tile.terrain === 'plain') {
+    // 平原用稀疏的草簇和短田垄点出地表差异，避免空白一片。
+    if (tileSeed % 3 === 0) {
+      context.strokeStyle = '#9a9663'
+      context.lineWidth = 0.6
+      context.beginPath()
+      const tuftX = (tileSeed % 7) - 3
+      const tuftY = ((tileSeed >> 3) % 7) - 3
+      context.moveTo(tuftX, tuftY + 1.2)
+      context.lineTo(tuftX - 0.9, tuftY - 0.8)
+      context.moveTo(tuftX, tuftY + 1.2)
+      context.lineTo(tuftX + 0.9, tuftY - 0.6)
+      context.stroke()
+    }
+  } else if (tile.terrain === 'forest') {
     context.fillStyle = '#3d6552'
-    for (const [treeX, treeY, size] of [[-2.4, 0.5, 0.7], [0, -1, 1], [2.2, 0.8, 0.65]]) {
+    const treeCount = 2 + tileSeed % 3
+    for (let tree = 0; tree < treeCount; tree++) {
+      const treeSeed = (tileSeed + tree * 23) % 31
+      const treeX = -3 + (treeSeed % 7)
+      const treeY = -1.6 + ((treeSeed >> 2) % 5)
+      const size = 0.55 + (treeSeed % 4) * 0.16
       context.beginPath()
       context.moveTo(treeX, treeY - 4 * size)
-      context.lineTo(treeX - 2.8 * size, treeY + 2.5 * size)
-      context.lineTo(treeX + 2.8 * size, treeY + 2.5 * size)
+      context.lineTo(treeX - 2.6 * size, treeY + 2.3 * size)
+      context.lineTo(treeX + 2.6 * size, treeY + 2.3 * size)
       context.closePath()
       context.fill()
     }
   } else if (tile.terrain === 'hill' || tile.terrain === 'mountain') {
-    const tileSeed = Math.abs(tile.q * 73 + tile.r * 151 + tile.q * tile.r * 19)
-    const peakCount = tile.terrain === 'mountain' ? 2 + tileSeed % 2 : 1 + tileSeed % 2
+    const peakCount = tile.terrain === 'mountain' ? 2 + (relief > 0.82 ? 1 : tileSeed % 2) : 1 + (relief > 0.5 ? 1 : tileSeed % 2)
+    const heightScale = 0.8 + relief * 0.35
     for (let peak = 0; peak < peakCount; peak++) {
       const peakSeed = (tileSeed + peak * 17) % 29
-      const peakX = peakCount === 1 ? (peakSeed % 5) - 2 : -2.7 + peak * 3 + (peakSeed % 3) * 0.35
+      const peakX = peakCount === 1 ? (peakSeed % 5) - 2 : -2.7 + peak * (tile.terrain === 'mountain' ? 2.7 : 3.2) + (peakSeed % 3) * 0.35
       const peakY = -1.4 + (peakSeed % 4) * 0.32
-      const width = 1.8 + peakSeed % 4 * 0.42
-      const height = (tile.terrain === 'mountain' ? 2.9 : 1.8) + peakSeed % 4 * 0.38
+      const width = (1.8 + peakSeed % 4 * 0.42) * (0.9 + relief * 0.2)
+      const height = ((tile.terrain === 'mountain' ? 2.9 : 1.8) + peakSeed % 4 * 0.38) * heightScale
       context.beginPath()
       context.moveTo(peakX - width, 2.7)
       context.lineTo(peakX - width * 0.23, peakY - height)
@@ -367,7 +396,7 @@ function drawTile(context: CanvasRenderingContext2D, tile: HexTile): void {
       context.lineTo(peakX + width * 0.35, peakY - height * 0.62)
       context.lineTo(peakX + width, 2.7)
       context.closePath()
-      context.fillStyle = peakSeed % 2 ? '#81755f' : '#93866a'
+      context.fillStyle = peakSeed % 2 ? '#72674f' : '#877a60'
       context.fill()
       context.strokeStyle = '#675c4c'
       context.lineWidth = tile.terrain === 'mountain' ? 0.52 : 0.34
@@ -376,18 +405,20 @@ function drawTile(context: CanvasRenderingContext2D, tile: HexTile): void {
       context.moveTo(peakX - width * 0.23, peakY - height)
       context.lineTo(peakX + width * 0.12, peakY - height * 0.18)
       context.lineTo(peakX + width * 0.35, peakY - height * 0.62)
-      context.strokeStyle = tile.terrain === 'mountain' ? '#e2ddc8' : '#c7bd9c'
+      // 只有最高的一批山核才显出浅色雪线。
+      context.strokeStyle = tile.terrain === 'mountain' && relief > 0.86 ? '#efe9d6' : '#c2b699'
       context.lineWidth = 0.42
       context.stroke()
     }
   } else if (tile.terrain === 'marsh') {
     context.strokeStyle = '#527b76'
     context.lineWidth = 1
+    const sway = ((tileSeed % 5) - 2) * 0.5
     context.beginPath()
     context.moveTo(-3.5, -1)
-    context.quadraticCurveTo(0, -2.5, 3.5, -1)
+    context.quadraticCurveTo(sway, -2.5, 3.5, -1)
     context.moveTo(-3, 1.5)
-    context.quadraticCurveTo(0, 0, 3, 1.5)
+    context.quadraticCurveTo(-sway, 0, 3, 1.5)
     context.stroke()
   }
   context.restore()
