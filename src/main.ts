@@ -50,7 +50,7 @@ app.innerHTML = `
           <button id="locate-city" class="tool-button" type="button" aria-label="定位所选城池" title="定位所选城池"><i data-lucide="locate-fixed"></i></button>
           <button id="zoom-in" class="tool-button" type="button" aria-label="放大地图" title="放大"><i data-lucide="plus"></i></button>
           <button id="zoom-out" class="tool-button" type="button" aria-label="缩小地图" title="缩小"><i data-lucide="minus"></i></button>
-          <span class="zoom-readout" id="zoom-readout">160%</span><span class="toolbar-divider"></span>
+          <span class="zoom-readout" id="zoom-readout">400%</span><span class="toolbar-divider"></span>
           <button id="reset-map" class="tool-button" type="button" aria-label="重置地图视角" title="重置视角"><i data-lucide="expand"></i></button>
         </div>
         <div class="map-scale" id="map-scale">約 130 里</div>
@@ -191,7 +191,7 @@ function resizeMap(): void {
   }
   mapCanvas.style.width = `${width}px`
   mapCanvas.style.height = `${height}px`
-  if (!state.positionReady) focusCity(initialCity, 1.6)
+  if (!state.positionReady) focusCity(initialCity, 4)
   else {
     state.panX += (width - viewportWidth) / 2
     state.panY += (height - viewportHeight) / 2
@@ -205,7 +205,7 @@ function resizeMap(): void {
 function focusCity(city: City, zoom: number): void {
   const bounds = mapCanvas.parentElement!.getBoundingClientRect()
   const center = hexToPixel(city.q, city.r)
-  state.zoom = Phaser.Math.Clamp(zoom, 0.38, 2.2)
+  state.zoom = Phaser.Math.Clamp(zoom, 0.38, 5.5)
   state.panX = bounds.width / 2 - center.x * state.zoom
   state.panY = bounds.height / 2 - center.y * state.zoom
   state.positionReady = true
@@ -632,7 +632,7 @@ function readMovementOptions(): MovementOptions {
 function selectCity(city: City): void {
   state.city = city
   state.selectedTile = world.tiles.get(hexKey(city.q, city.r)) ?? null
-  focusCity(city, Math.max(state.zoom, 1.6))
+  focusCity(city, Math.max(state.zoom, 4))
   updateSelection()
   renderCityList()
   if (window.matchMedia('(max-width: 820px)').matches) {
@@ -800,7 +800,7 @@ function zoomAt(clientX: number, clientY: number, factor: number): void {
   const rect = mapCanvas.getBoundingClientRect()
   const x = clientX - rect.left
   const y = clientY - rect.top
-  const nextZoom = Phaser.Math.Clamp(state.zoom * factor, 0.38, 2.2)
+  const nextZoom = Phaser.Math.Clamp(state.zoom * factor, 0.38, 5.5)
   const scale = nextZoom / state.zoom
   state.panX = x - (x - state.panX) * scale
   state.panY = y - (y - state.panY) * scale

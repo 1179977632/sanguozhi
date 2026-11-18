@@ -45,7 +45,7 @@ export interface World {
 interface CityRecord extends Omit<City, 'q' | 'r' | 'tileKeys'> {}
 interface GeoPoint { lon: number; lat: number }
 
-export const HEX_SIZE = 3
+export const HEX_SIZE = 1.2
 
 export const TERRAIN: Record<TerrainId, { name: string; color: number; cost: number; hint: string }> = {
   plain: { name: '平原', color: 0xc8c58d, cost: 1, hint: '沃野广阔，粮秣易集，步骑皆宜迅速通行。' },
@@ -339,13 +339,13 @@ function getLandTerrain(lon: number, lat: number, seed: number, q: number, r: nu
   return 'plain'
 }
 
-/** 在历史点四格范围内按实际像素距离选择可居住且完整七格未占用的城心。 */
+/** 在历史点十格范围内按实际像素距离选择可居住且完整七格未占用的城心。 */
 function findCityCenter(x: number, y: number, tiles: Map<string, HexTile>, reserved: Set<string>): HexTile | undefined {
   const { q, r } = pixelToHex(x, y)
   let best: { tile: HexTile; distance: number } | undefined
-  for (let dq = -4; dq <= 4; dq++) {
-    for (let dr = -4; dr <= 4; dr++) {
-      if (Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)) > 4) continue
+  for (let dq = -10; dq <= 10; dq++) {
+    for (let dr = -10; dr <= 10; dr++) {
+      if (Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)) > 10) continue
       const tile = tiles.get(hexKey(q + dq, r + dr))
       if (!tile || !['plain', 'forest', 'hill', 'marsh'].includes(tile.terrain)) continue
       const footprint = CITY_OFFSETS.map(([oq, or]) => tiles.get(hexKey(tile.q + oq, tile.r + or)))
