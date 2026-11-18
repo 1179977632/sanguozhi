@@ -9,6 +9,7 @@ export interface HexTile {
   lon: number
   lat: number
   terrain: TerrainId
+  landform?: string
   cityId?: string
   cityCenter?: boolean
 }
@@ -90,15 +91,42 @@ const LAND_OUTLINE: GeoPoint[] = [
   { lon: 96.2, lat: 27.1 }, { lon: 94.8, lat: 29.5 }, { lon: 94.7, lat: 32.4 },
 ]
 
-const MOUNTAIN_RANGES: { name: string; lon: number; lat: number; rx: number; ry: number; angle: number }[] = [
-  { name: 'Qinling', lon: 107.5, lat: 33.5, rx: 2.5, ry: 1.15, angle: -0.4 },
-  { name: 'Daba', lon: 105.8, lat: 31.7, rx: 1.85, ry: 0.75, angle: -0.45 },
-  { name: 'Taihang', lon: 113.6, lat: 36.9, rx: 0.8, ry: 2.25, angle: 0.12 },
-  { name: 'Yinshan', lon: 109.5, lat: 40.5, rx: 2.9, ry: 0.68, angle: -0.13 },
-  { name: 'Wuling', lon: 110.4, lat: 29, rx: 2.2, ry: 0.95, angle: 0.22 },
-  { name: 'Nanling', lon: 111.3, lat: 25.6, rx: 4.25, ry: 0.9, angle: -0.1 },
-  { name: 'ShuPasses', lon: 103.9, lat: 30.2, rx: 1.45, ry: 1.7, angle: 0.2 },
-  { name: 'Hengshan', lon: 112.8, lat: 27.2, rx: 0.85, ry: 1.65, angle: -0.16 },
+// 山脊是用于策略地图的地理示意线，不代表汉末精确测绘边界。
+export const MOUNTAIN_RANGES: { name: string; points: GeoPoint[]; width: number; label: GeoPoint }[] = [
+  { name: '秦嶺', width: 0.34, label: { lon: 107.4, lat: 34.05 }, points: [{ lon: 103.5, lat: 34.15 }, { lon: 105.3, lat: 33.95 }, { lon: 107.2, lat: 33.82 }, { lon: 109.3, lat: 33.65 }, { lon: 111.4, lat: 33.55 }] },
+  { name: '大巴山', width: 0.3, label: { lon: 106.3, lat: 32.1 }, points: [{ lon: 103.7, lat: 32.55 }, { lon: 105.4, lat: 32.2 }, { lon: 107.1, lat: 32.35 }, { lon: 109.4, lat: 32.05 }] },
+  { name: '太行山', width: 0.26, label: { lon: 113.4, lat: 37.2 }, points: [{ lon: 112.9, lat: 34.65 }, { lon: 113.35, lat: 35.55 }, { lon: 113.8, lat: 36.6 }, { lon: 113.9, lat: 37.7 }, { lon: 114.35, lat: 38.8 }] },
+  { name: '呂梁山', width: 0.28, label: { lon: 110.7, lat: 37.1 }, points: [{ lon: 110.1, lat: 35.1 }, { lon: 110.7, lat: 36.2 }, { lon: 111.1, lat: 37.4 }, { lon: 111.2, lat: 38.7 }] },
+  { name: '燕山', width: 0.3, label: { lon: 117.1, lat: 40.7 }, points: [{ lon: 115.1, lat: 40.45 }, { lon: 116.4, lat: 40.1 }, { lon: 117.7, lat: 40.35 }, { lon: 119.1, lat: 40.55 }, { lon: 120.2, lat: 40.3 }] },
+  { name: '陰山', width: 0.36, label: { lon: 109.4, lat: 41.0 }, points: [{ lon: 105.3, lat: 40.65 }, { lon: 107.2, lat: 40.45 }, { lon: 109.5, lat: 40.25 }, { lon: 111.7, lat: 40.35 }, { lon: 113.7, lat: 40.15 }] },
+  { name: '龍門山', width: 0.22, label: { lon: 103.1, lat: 31.45 }, points: [{ lon: 102.2, lat: 30.2 }, { lon: 102.75, lat: 31.0 }, { lon: 103.25, lat: 31.9 }, { lon: 103.55, lat: 32.8 }] },
+  { name: '橫斷山', width: 0.46, label: { lon: 100.8, lat: 29.0 }, points: [{ lon: 98.1, lat: 28.1 }, { lon: 99.0, lat: 28.8 }, { lon: 99.7, lat: 29.7 }, { lon: 100.4, lat: 30.5 }, { lon: 101.25, lat: 31.5 }, { lon: 102.0, lat: 32.4 }] },
+  { name: '武陵山', width: 0.3, label: { lon: 109.8, lat: 29.55 }, points: [{ lon: 108.8, lat: 28.15 }, { lon: 109.4, lat: 28.8 }, { lon: 110.1, lat: 29.55 }, { lon: 110.7, lat: 30.25 }, { lon: 111.2, lat: 30.9 }] },
+  { name: '雪峰山', width: 0.23, label: { lon: 110.8, lat: 27.5 }, points: [{ lon: 110.0, lat: 25.8 }, { lon: 110.6, lat: 26.45 }, { lon: 111.0, lat: 27.2 }, { lon: 111.15, lat: 28.0 }, { lon: 111.0, lat: 28.65 }] },
+  { name: '南嶺', width: 0.34, label: { lon: 110.9, lat: 25.2 }, points: [{ lon: 108.6, lat: 25.05 }, { lon: 110.2, lat: 25.2 }, { lon: 112.0, lat: 25.05 }, { lon: 113.8, lat: 25.25 }, { lon: 115.5, lat: 25.45 }] },
+  { name: '大別山', width: 0.28, label: { lon: 115.4, lat: 31.95 }, points: [{ lon: 113.8, lat: 31.8 }, { lon: 114.8, lat: 31.45 }, { lon: 115.8, lat: 31.35 }, { lon: 116.8, lat: 31.6 }] },
+  { name: '武夷山', width: 0.3, label: { lon: 117.7, lat: 27.7 }, points: [{ lon: 116.8, lat: 25.5 }, { lon: 117.25, lat: 26.3 }, { lon: 117.8, lat: 27.2 }, { lon: 118.3, lat: 28.2 }, { lon: 118.8, lat: 29.0 }] },
+]
+
+const MOUNTAIN_PASSES: { name: string; lon: number; lat: number; radius: number }[] = [
+  { name: '褒斜道', lon: 107.25, lat: 33.65, radius: 0.22 },
+  { name: '陳倉道', lon: 106.9, lat: 34.2, radius: 0.18 },
+  { name: '子午道', lon: 108.8, lat: 33.6, radius: 0.18 },
+  { name: '米倉道', lon: 106.6, lat: 32.25, radius: 0.2 },
+  { name: '巫峽道', lon: 110.15, lat: 30.9, radius: 0.18 },
+  { name: '武關道', lon: 110.45, lat: 33.5, radius: 0.17 },
+  { name: '梅關道', lon: 114.35, lat: 25.0, radius: 0.18 },
+]
+
+const NAMED_LOWLANDS: { name: string; points: GeoPoint[] }[] = [
+  { name: '河西走廊', points: [{ lon: 96.8, lat: 37.2 }, { lon: 100.4, lat: 37.3 }, { lon: 103.6, lat: 38.0 }, { lon: 103.5, lat: 40.0 }, { lon: 100.5, lat: 39.7 }, { lon: 97.0, lat: 38.8 }] },
+  { name: '關中平原', points: [{ lon: 106.2, lat: 33.8 }, { lon: 107.5, lat: 33.5 }, { lon: 109.5, lat: 33.8 }, { lon: 110.7, lat: 34.6 }, { lon: 110.2, lat: 35.2 }, { lon: 107.7, lat: 35.0 }, { lon: 106.3, lat: 34.7 }] },
+  { name: '漢中盆地', points: [{ lon: 105.7, lat: 32.5 }, { lon: 106.4, lat: 32.5 }, { lon: 107.8, lat: 32.8 }, { lon: 108.2, lat: 33.4 }, { lon: 107.0, lat: 33.65 }, { lon: 105.8, lat: 33.2 }] },
+  { name: '成都平原', points: [{ lon: 102.7, lat: 30.3 }, { lon: 103.2, lat: 30.1 }, { lon: 104.9, lat: 30.3 }, { lon: 105.3, lat: 31.0 }, { lon: 104.9, lat: 31.7 }, { lon: 103.3, lat: 31.6 }, { lon: 102.7, lat: 31.0 }] },
+  { name: '華北平原', points: [{ lon: 113.0, lat: 33.6 }, { lon: 116.2, lat: 33.3 }, { lon: 120.7, lat: 34.0 }, { lon: 120.8, lat: 38.0 }, { lon: 117.0, lat: 38.2 }, { lon: 113.4, lat: 36.5 }] },
+  { name: '江漢平原', points: [{ lon: 111.3, lat: 29.7 }, { lon: 112.2, lat: 29.5 }, { lon: 114.6, lat: 29.8 }, { lon: 114.9, lat: 31.3 }, { lon: 113.7, lat: 31.7 }, { lon: 112.0, lat: 31.2 }] },
+  { name: '江淮平原', points: [{ lon: 115.0, lat: 31.3 }, { lon: 116.1, lat: 31.0 }, { lon: 119.0, lat: 31.4 }, { lon: 119.5, lat: 33.1 }, { lon: 117.8, lat: 33.5 }, { lon: 115.5, lat: 33.2 }] },
+  { name: '雲貴高原', points: [{ lon: 99.5, lat: 24.0 }, { lon: 101.0, lat: 23.6 }, { lon: 104.0, lat: 24.0 }, { lon: 105.0, lat: 26.6 }, { lon: 103.4, lat: 27.4 }, { lon: 100.6, lat: 26.8 }] },
 ]
 
 export const RIVERS: { name: string; points: GeoPoint[]; width: number }[] = [
@@ -109,13 +137,34 @@ export const RIVERS: { name: string; points: GeoPoint[]; width: number }[] = [
   { name: '湘水', width: 0.08, points: [{ lon: 111.61, lat: 26.42 }, { lon: 112.2, lat: 27.5 }, { lon: 112.94, lat: 28.23 }, { lon: 112.8, lat: 29.3 }] },
   { name: '赣水', width: 0.09, points: [{ lon: 114.9, lat: 25.8 }, { lon: 114.9, lat: 26.8 }, { lon: 115.2, lat: 27.5 }, { lon: 115.8, lat: 28.6 }, { lon: 116.1, lat: 29.7 }] },
   { name: '珠江', width: 0.12, points: [{ lon: 106.5, lat: 25.5 }, { lon: 109, lat: 24.2 }, { lon: 111, lat: 24 }, { lon: 113, lat: 23.2 }, { lon: 113.5, lat: 22.8 }] },
+  { name: '岷江', width: 0.08, points: [{ lon: 103.8, lat: 32.7 }, { lon: 103.6, lat: 31.8 }, { lon: 103.8, lat: 31.2 }, { lon: 104.1, lat: 30.75 }, { lon: 104.15, lat: 30.55 }] },
+  { name: '沱江', width: 0.07, points: [{ lon: 104.6, lat: 31.6 }, { lon: 104.55, lat: 30.9 }, { lon: 104.75, lat: 30.4 }, { lon: 105.05, lat: 29.85 }] },
+  { name: '嘉陵江', width: 0.09, points: [{ lon: 105.5, lat: 33.2 }, { lon: 106.1, lat: 32.2 }, { lon: 106.0, lat: 31.1 }, { lon: 106.55, lat: 29.56 }] },
+  { name: '涪江', width: 0.06, points: [{ lon: 103.9, lat: 32.0 }, { lon: 104.7, lat: 31.5 }, { lon: 105.3, lat: 30.9 }, { lon: 106.0, lat: 30.1 }] },
+  { name: '沅水', width: 0.07, points: [{ lon: 109.8, lat: 27.4 }, { lon: 110.0, lat: 28.1 }, { lon: 110.4, lat: 28.7 }, { lon: 111.1, lat: 29.1 }, { lon: 112.19, lat: 30.35 }] },
+  { name: '漢水支流', width: 0.06, points: [{ lon: 108.4, lat: 31.7 }, { lon: 109.4, lat: 32.0 }, { lon: 110.4, lat: 32.0 }, { lon: 111.2, lat: 31.9 }, { lon: 112.14, lat: 32.04 }] },
 ]
 
-const LAKES: { lon: number; lat: number; rx: number; ry: number }[] = [
-  { lon: 112.8, lat: 29.3, rx: 0.75, ry: 0.34 },
-  { lon: 116.3, lat: 29.1, rx: 0.48, ry: 0.67 },
-  { lon: 118.8, lat: 33.2, rx: 0.72, ry: 0.35 },
-  { lon: 120, lat: 31.2, rx: 0.49, ry: 0.23 },
+// 湖岸为策略地图的示意折线，描述水系位置与河网形态，不等同汉末精确岸线。
+export const LAKES: { name: string; points: GeoPoint[]; islands?: GeoPoint[][]; label: GeoPoint }[] = [
+  { name: '洞庭湖', label: { lon: 112.95, lat: 29.45 }, points: [{ lon: 111.75, lat: 29.65 }, { lon: 112.08, lat: 30.02 }, { lon: 112.47, lat: 29.88 }, { lon: 112.74, lat: 30.0 }, { lon: 113.13, lat: 29.82 }, { lon: 113.52, lat: 29.55 }, { lon: 113.48, lat: 29.28 }, { lon: 113.16, lat: 29.02 }, { lon: 112.76, lat: 28.98 }, { lon: 112.4, lat: 29.12 }, { lon: 112.06, lat: 29.18 }] },
+  { name: '鄱陽湖', label: { lon: 116.25, lat: 29.35 }, points: [{ lon: 115.62, lat: 29.95 }, { lon: 115.92, lat: 30.02 }, { lon: 116.13, lat: 29.83 }, { lon: 116.41, lat: 29.7 }, { lon: 116.56, lat: 29.4 }, { lon: 116.44, lat: 29.08 }, { lon: 116.32, lat: 28.78 }, { lon: 116.17, lat: 28.52 }, { lon: 115.95, lat: 28.64 }, { lon: 115.82, lat: 28.9 }, { lon: 115.67, lat: 29.2 }], islands: [[{ lon: 116.02, lat: 29.36 }, { lon: 116.12, lat: 29.42 }, { lon: 116.2, lat: 29.34 }, { lon: 116.13, lat: 29.26 }]] },
+  { name: '太湖', label: { lon: 120.02, lat: 31.25 }, points: [{ lon: 119.78, lat: 31.55 }, { lon: 120.12, lat: 31.52 }, { lon: 120.45, lat: 31.43 }, { lon: 120.65, lat: 31.22 }, { lon: 120.48, lat: 30.98 }, { lon: 120.19, lat: 30.84 }, { lon: 119.92, lat: 30.93 }, { lon: 119.72, lat: 31.08 }] },
+  { name: '巢湖', label: { lon: 117.45, lat: 31.55 }, points: [{ lon: 116.92, lat: 31.75 }, { lon: 117.14, lat: 31.89 }, { lon: 117.42, lat: 31.84 }, { lon: 117.75, lat: 31.72 }, { lon: 117.92, lat: 31.52 }, { lon: 117.75, lat: 31.34 }, { lon: 117.43, lat: 31.29 }, { lon: 117.13, lat: 31.42 }] },
+]
+
+const MARSH_REGIONS: GeoPoint[][] = [
+  [{ lon: 111.2, lat: 30.7 }, { lon: 112.1, lat: 31.0 }, { lon: 113.0, lat: 30.8 }, { lon: 113.8, lat: 30.4 }, { lon: 114.0, lat: 29.7 }, { lon: 113.2, lat: 29.4 }, { lon: 112.2, lat: 29.7 }, { lon: 111.4, lat: 30.0 }],
+  [{ lon: 112.8, lat: 33.1 }, { lon: 114.1, lat: 33.0 }, { lon: 115.5, lat: 32.9 }, { lon: 117.0, lat: 33.1 }, { lon: 118.5, lat: 33.2 }, { lon: 118.8, lat: 32.7 }, { lon: 117.1, lat: 32.4 }, { lon: 115.5, lat: 32.5 }, { lon: 114.0, lat: 32.7 }],
+  [{ lon: 119.1, lat: 34.0 }, { lon: 120.1, lat: 34.3 }, { lon: 120.9, lat: 34.1 }, { lon: 120.6, lat: 33.4 }, { lon: 119.7, lat: 33.1 }, { lon: 119.2, lat: 33.4 }],
+  [{ lon: 100.0, lat: 25.7 }, { lon: 100.3, lat: 26.1 }, { lon: 100.6, lat: 25.9 }, { lon: 100.7, lat: 25.5 }, { lon: 100.4, lat: 25.2 }, { lon: 100.1, lat: 25.3 }],
+]
+
+const FOREST_REGIONS: GeoPoint[][] = [
+  [{ lon: 97.8, lat: 27.1 }, { lon: 99.0, lat: 27.6 }, { lon: 100.2, lat: 28.2 }, { lon: 101.5, lat: 29.0 }, { lon: 102.4, lat: 30.0 }, { lon: 101.4, lat: 30.6 }, { lon: 100.3, lat: 29.8 }, { lon: 99.2, lat: 29.1 }, { lon: 98.2, lat: 28.5 }],
+  [{ lon: 102.4, lat: 26.7 }, { lon: 103.4, lat: 27.2 }, { lon: 104.3, lat: 28.4 }, { lon: 104.9, lat: 29.8 }, { lon: 104.2, lat: 30.6 }, { lon: 103.4, lat: 29.3 }, { lon: 102.6, lat: 28.4 }],
+  [{ lon: 115.4, lat: 27.1 }, { lon: 116.4, lat: 27.8 }, { lon: 117.0, lat: 28.8 }, { lon: 118.2, lat: 29.4 }, { lon: 119.0, lat: 30.0 }, { lon: 118.3, lat: 30.6 }, { lon: 117.3, lat: 30.0 }, { lon: 116.5, lat: 29.1 }, { lon: 115.7, lat: 28.2 }],
+  [{ lon: 119.0, lat: 26.2 }, { lon: 120.0, lat: 26.8 }, { lon: 120.8, lat: 27.8 }, { lon: 121.2, lat: 28.7 }, { lon: 120.6, lat: 29.2 }, { lon: 119.9, lat: 28.3 }, { lon: 119.2, lat: 27.5 }],
 ]
 
 const CITY_RECORDS: CityRecord[] = [
@@ -209,8 +258,8 @@ export function createWorld(seed = 189): World {
       const land = isLand(geo.lon, geo.lat)
       const key = hexKey(q, r)
       if (!land && !isNearCoast(geo.lon, geo.lat)) continue
-      const terrain = land ? getLandTerrain(geo.lon, geo.lat, seed, q, r) : 'coast'
-      tiles.set(key, { q, r, x: point.x, y: point.y, lon: round2(geo.lon), lat: round2(geo.lat), terrain })
+      const detail = land ? getLandTerrain(geo.lon, geo.lat, seed, q, r) : { terrain: 'coast' as TerrainId, landform: '近海' }
+      tiles.set(key, { q, r, x: point.x, y: point.y, lon: round2(geo.lon), lat: round2(geo.lat), ...detail })
     }
   }
 
@@ -318,25 +367,26 @@ function isNearCoast(lon: number, lat: number): boolean {
   })
 }
 
-/** 按山系、河谷、江湖與可重現噪聲分配陸地格的地形類型。 */
-function getLandTerrain(lon: number, lat: number, seed: number, q: number, r: number): TerrainId {
-  if (LAKES.some((lake) => ellipseDistance(lon, lat, lake.lon, lake.lat, lake.rx, lake.ry) < 0.72)) return 'lake'
+/** 依據河道、湖岸、多段山脊和連片植被濕地分類地塊，並保留具名地貌。 */
+function getLandTerrain(lon: number, lat: number, seed: number, q: number, r: number): { terrain: TerrainId; landform: string } {
+  const lake = LAKES.find((candidate) => pointInPolygon(lon, lat, candidate.points))
+  if (lake) return { terrain: 'lake', landform: lake.name }
   const river = closestRiverDistance(lon, lat)
-  if (river.distance < river.width * 0.74) return 'river'
-  if (inMountainRange(lon, lat, 'Yinshan') && lat > 39.5) return 'hill'
-  if (inMountainRange(lon, lat)) {
-    const range = MOUNTAIN_RANGES.find((candidate) => ellipseDistance(lon, lat, candidate.lon, candidate.lat, candidate.rx, candidate.ry, candidate.angle) < 1)
-    const pass = range && ['Qinling', 'Daba', 'ShuPasses'].includes(range.name) && randomValue(seed, q + 17, r - 31) > 0.79
-    return pass ? 'hill' : randomValue(seed, q, r) < 0.32 ? 'hill' : 'mountain'
+  if (river.distance < river.width * 0.58) return { terrain: 'river', landform: river.name }
+  const range = closestMountainRange(lon, lat)
+  const noise = smoothNoise(seed, lon, lat)
+  if (range && range.distance < range.width * 1.65 && !inPassCorridor(lon, lat)) {
+    const core = range.distance < range.width * (0.34 + noise * 0.18)
+    return { terrain: core ? 'mountain' : 'hill', landform: range.range.name }
   }
-  if (inMountainRange(lon, lat, 'Nanling') && randomValue(seed, q + 5, r + 8) < 0.65) return 'hill'
-  if ((lat < 25.5 && lon > 100) || (lon > 112 && lon < 119 && lat > 33 && lat < 36.4)) {
-    if (randomValue(seed, q - 10, r + 2) < 0.25) return 'marsh'
-  }
-  const random = randomValue(seed, q, r)
-  if (random < 0.13 && ((lon > 97 && lon < 108 && lat > 25 && lat < 38) || (lon > 115 && lat < 33))) return 'forest'
-  if (random > 0.92) return 'hill'
-  return 'plain'
+  const marsh = MARSH_REGIONS.find((region) => pointInPolygon(lon, lat, region))
+  if (marsh && noise > 0.27) return { terrain: 'marsh', landform: '江湖泽地' }
+  const forest = FOREST_REGIONS.find((region) => pointInPolygon(lon, lat, region))
+  if (forest && noise > 0.23) return { terrain: 'forest', landform: '山地林区' }
+  const lowland = NAMED_LOWLANDS.find((region) => pointInPolygon(lon, lat, region))
+  if (lowland) return { terrain: noise > 0.91 ? 'hill' : 'plain', landform: lowland.name }
+  if (noise > 0.93) return { terrain: 'hill', landform: '丘陵地' }
+  return { terrain: 'plain', landform: '平原' }
 }
 
 /** 在历史点十格范围内按实际像素距离选择可居住且完整七格未占用的城心。 */
@@ -377,22 +427,64 @@ function rasterizeRivers(tiles: Map<string, HexTile>): void {
 }
 
 /** 求最近主要水系到所给点的角度加权距离。 */
-function closestRiverDistance(lon: number, lat: number): { distance: number; width: number } {
-  let closest = { distance: Infinity, width: 0 }
+/** 返回最近河段及其河名和宽度，并以线段包围盒跳过远处水系。 */
+function closestRiverDistance(lon: number, lat: number): { distance: number; width: number; name: string } {
+  let closest = { distance: Infinity, width: 0, name: '' }
+  const longitudeScale = Math.cos(lat * Math.PI / 180)
+  const pointX = lon * longitudeScale
   for (const river of RIVERS) {
     for (let index = 1; index < river.points.length; index++) {
       const first = river.points[index - 1]!
       const second = river.points[index]!
-      const distance = segmentDistance(lon * Math.cos(lat * Math.PI / 180), lat, first.lon * Math.cos(lat * Math.PI / 180), first.lat, second.lon * Math.cos(lat * Math.PI / 180), second.lat)
-      if (distance < closest.distance) closest = { distance, width: river.width }
+      const minX = Math.min(first.lon, second.lon) * longitudeScale - river.width * 2
+      const maxX = Math.max(first.lon, second.lon) * longitudeScale + river.width * 2
+      if (pointX < minX || pointX > maxX || lat < Math.min(first.lat, second.lat) - river.width * 2 || lat > Math.max(first.lat, second.lat) + river.width * 2) continue
+      const distance = segmentDistance(pointX, lat, first.lon * longitudeScale, first.lat, second.lon * longitudeScale, second.lat)
+      if (distance < closest.distance) closest = { distance, width: river.width, name: river.name }
     }
   }
   return closest
 }
 
-/** 判斷點是否落在指定山系的不規則範圍內。 */
-function inMountainRange(lon: number, lat: number, name?: string): boolean {
-  return MOUNTAIN_RANGES.some((range) => (!name || range.name === name) && ellipseDistance(lon, lat, range.lon, range.lat, range.rx, range.ry, range.angle) < 1)
+/** 返回最近的具名山脊及其校正距離，先用地理包圍盒縮小線段計算。 */
+function closestMountainRange(lon: number, lat: number): { range: typeof MOUNTAIN_RANGES[number]; distance: number } | undefined {
+  let closest: { range: typeof MOUNTAIN_RANGES[number]; distance: number } | undefined
+  const longitudeScale = Math.cos(lat * Math.PI / 180)
+  for (const range of MOUNTAIN_RANGES) {
+    const longitudes = range.points.map((point) => point.lon)
+    const latitudes = range.points.map((point) => point.lat)
+    if (lon < Math.min(...longitudes) - range.width * 2 || lon > Math.max(...longitudes) + range.width * 2 || lat < Math.min(...latitudes) - range.width * 2 || lat > Math.max(...latitudes) + range.width * 2) continue
+    for (let index = 1; index < range.points.length; index++) {
+      const first = range.points[index - 1]!
+      const second = range.points[index]!
+      const distance = segmentDistance(lon * longitudeScale, lat, first.lon * longitudeScale, first.lat, second.lon * longitudeScale, second.lat)
+      if (!closest || distance < closest.distance) closest = { range, distance }
+    }
+  }
+  return closest
+}
+
+/** 将明确的古道隘口设为丘陵走廊，保证山脉中存在连通路线。 */
+function inPassCorridor(lon: number, lat: number): boolean {
+  return MOUNTAIN_PASSES.some((pass) => Math.hypot((lon - pass.lon) * Math.cos(lat * Math.PI / 180), lat - pass.lat) < pass.radius)
+}
+
+/** 以格网低频平滑噪声形成连续山脊、林缘与湿地过渡。 */
+function smoothNoise(seed: number, lon: number, lat: number): number {
+  const x = (lon - GEO_LEFT) * GEO_SCALE_X / 8
+  const y = (GEO_TOP - lat) * GEO_SCALE_Y / 8
+  const x0 = Math.floor(x)
+  const y0 = Math.floor(y)
+  const tx = smoothStep(x - x0)
+  const ty = smoothStep(y - y0)
+  const top = randomValue(seed, x0, y0) * (1 - tx) + randomValue(seed, x0 + 1, y0) * tx
+  const bottom = randomValue(seed, x0, y0 + 1) * (1 - tx) + randomValue(seed, x0 + 1, y0 + 1) * tx
+  return top * (1 - ty) + bottom * ty
+}
+
+/** 平滑格网插值端点，避免地形纹理逐格跳变。 */
+function smoothStep(value: number): number {
+  return value * value * (3 - 2 * value)
 }
 
 /** 計算點在線段上的最近距離並用經度餘弦校正平面距離。 */
@@ -405,14 +497,22 @@ function segmentDistance(px: number, py: number, ax: number, ay: number, bx: num
 }
 
 /** 計算旋轉地形橢圓內位置以形成河谷山脈與湖泊。 */
-function ellipseDistance(lon: number, lat: number, cx: number, cy: number, rx: number, ry: number, angle = 0): number {
-  const x = (lon - cx) * Math.cos(angle) + (lat - cy) * Math.sin(angle)
-  const y = -(lon - cx) * Math.sin(angle) + (lat - cy) * Math.cos(angle)
-  return Math.hypot(x / rx, y / ry)
-}
 
-/** 用射线穿越法判断地理位置是否落在海岸线多边形内。 */
+
+/** 以缓存的地理包围盒和射线穿越法判断地理位置是否落在多边形内。 */
 function pointInPolygon(lon: number, lat: number, polygon: GeoPoint[]): boolean {
+  let bounds = polygonBounds.get(polygon)
+  if (!bounds) {
+    bounds = { minLon: Infinity, maxLon: -Infinity, minLat: Infinity, maxLat: -Infinity }
+    for (const point of polygon) {
+      bounds.minLon = Math.min(bounds.minLon, point.lon)
+      bounds.maxLon = Math.max(bounds.maxLon, point.lon)
+      bounds.minLat = Math.min(bounds.minLat, point.lat)
+      bounds.maxLat = Math.max(bounds.maxLat, point.lat)
+    }
+    polygonBounds.set(polygon, bounds)
+  }
+  if (lon < bounds.minLon || lon > bounds.maxLon || lat < bounds.minLat || lat > bounds.maxLat) return false
   let inside = false
   for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index++) {
     const first = polygon[index]!
