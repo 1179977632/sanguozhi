@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { createIcons, ArrowDownUp, ArrowLeft, ArrowRight, ChevronsDown, Compass, Expand, LocateFixed, Minus, Mountain, MousePointer2, Plus, RotateCcw, Search, Ship, Sparkles, X, ZoomIn, ZoomOut } from 'lucide'
 import type { City, FactionId, HexTile, MovementOptions } from './world'
-import { createWorld, DIRECTIONS, FACTIONS, HEX_SIZE, RIVERS, TERRAIN, findPath, geoToPixel, hexKey, hexToPixel, movementCost, pixelToHex } from './world'
+import { createWorld, DIRECTIONS, FACTIONS, HEX_SIZE, LAKES, MOUNTAIN_RANGES, RIVERS, TERRAIN, findPath, geoToPixel, hexKey, hexToPixel, movementCost, pixelToHex } from './world'
 import './style.css'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -252,13 +252,13 @@ function drawMap(): void {
   context.save()
   context.translate(state.panX, state.panY)
   context.scale(state.zoom, state.zoom)
-  drawRelief(context)
   const viewport = { left: -state.panX / state.zoom, top: -state.panY / state.zoom, right: (-state.panX + bounds.width) / state.zoom, bottom: (-state.panY + bounds.height) / state.zoom }
   const visibleTiles = Array.from(world.tiles.values()).filter((tile) => {
     const { x, y } = hexToPixel(tile.q, tile.r)
     return x >= viewport.left - 24 && x <= viewport.right + 24 && y >= viewport.top - 24 && y <= viewport.bottom + 24
   })
   for (const tile of visibleTiles) drawTile(context, tile)
+  drawRelief(context)
   if (state.showBorders) drawProvinceLines(context, visibleTiles)
   if (state.showRivers) drawRivers(context)
   if (state.showSeaLabels) drawSeaLabels(context)
@@ -270,43 +270,56 @@ function drawMap(): void {
   state.dirty = false
 }
 
-/** 为大地绘制纸本晕染般的丘陵阴影和地形纹理。 */
+/** 按世界生成器的山脊折线与湖岸多边形绘制地貌标注。 */
 function drawRelief(context: CanvasRenderingContext2D): void {
   if (!state.showRelief) return
-  const ridges = [
-    { name: '秦岭', x: 627, y: 481, radiusX: 117, radiusY: 55, angle: -0.35 },
-    { name: '巴山', x: 578, y: 547, radiusX: 92, radiusY: 45, angle: -0.27 },
-    { name: '太行山', x: 792, y: 377, radiusX: 32, radiusY: 90, angle: 0.18 },
-    { name: '阴山', x: 755, y: 248, radiusX: 106, radiusY: 29, angle: -0.09 },
-    { name: '武陵山', x: 728, y: 594, radiusX: 88, radiusY: 48, angle: 0.28 },
-    { name: '南岭', x: 733, y: 713, radiusX: 155, radiusY: 37, angle: -0.12 },
-    { name: '太湖', x: 1081, y: 667, radiusX: 32, radiusY: 18, angle: 0 },
-  ]
   context.save()
-  context.globalAlpha = 0.27
-  for (const ridge of ridges) {
-    context.save()
-    context.translate(ridge.x, ridge.y)
-    context.rotate(ridge.angle)
-    context.strokeStyle = ridge.name === '太湖' ? '#608a83' : '#83785e'
-    context.fillStyle = ridge.name === '太湖' ? 'rgba(105,152,147,.22)' : 'rgba(147,134,103,.12)'
-    context.lineWidth = 1.3
-    context.setLineDash([2, 3])
-    for (let band = 0; band < 4; band++) {
-      context.beginPath()
-      context.ellipse(band * 1.2, -band * 1.2, Math.max(2, ridge.radiusX - band * 12), Math.max(2, ridge.radiusY - band * 6), 0, 0, Math.PI * 2)
-      context.fill()
-      context.stroke()
-    }
-    if (ridge.name !== '太湖') {
-      context.globalAlpha = 0.56
-      context.fillStyle = '#695e4d'
-      context.font = '11px "Noto Serif SC", serif'
-      context.textAlign = 'center'
-      context.fillText(ridge.name, 0, 3)
-      context.globalAlpha = 0.27
-    }
-    context.restore()
+  context.lineJoin = 'round'
+  context.lineCap = 'round'
+  for (const lake of LAKES) {
+    context.beginPath()
+    lake.points.forEach(({ lon, lat }, index) => {
+      const point = geoToPixel(lon, lat)
+      index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y)
+    })
+    context.closePath()
+    lake.islands?.forEach((island) => {
+      island.forEach(({ lon, lat }, index) => {
+        const point = geoToPixel(lon, lat)
+        index ? context.lineTo(point.x, point.y) : context.moveTo(point.x, point.y)
+      })
+      context.closePath()
+    })
+    context.fillStyle = 'rgba(103,157,153,.34)'
+    context.fill('evenodd')
+    context.strokeStyle = '#548a87'
+    context.lineWidth = HEX_SIZE * 0.18
+    context.stroke()
+    const label = geoToPixel(lake.label.lon, lake.label.lat)
+    context.fillStyle = '#426f72'
+    context.font = `${11 / state.zoom}px "Noto Serif SC", serif`
+    context.textAlign = 'center'
+    context.fillText(lake.name, label.x, label.y)
+  }
+  for (const range of MOUNTAIN_RANGES) {
+    const points = range.points.map(({ lon, lat }) => geoToPixel(lon, lat))
+    context.strokeStyle = 'rgba(119,102,74,.18)'
+    context.lineWidth = Math.max(HEX_SIZE * 0.9, range.width * 24)
+    context.beginPath()
+    points.forEach(({ x, y }, index) => index ? context.lineTo(x, y) : context.moveTo(x, y))
+    context.stroke()
+    context.strokeStyle = 'rgba(108,91,67,.54)'
+    context.lineWidth = HEX_SIZE * 0.24
+    context.setLineDash([HEX_SIZE * 1.3, HEX_SIZE * 0.8])
+    context.beginPath()
+    points.forEach(({ x, y }, index) => index ? context.lineTo(x, y) : context.moveTo(x, y))
+    context.stroke()
+    context.setLineDash([])
+    const label = geoToPixel(range.label.lon, range.label.lat)
+    context.fillStyle = 'rgba(91,75,57,.8)'
+    context.font = `${11 / state.zoom}px "Noto Serif SC", serif`
+    context.textAlign = 'center'
+    context.fillText(range.name, label.x, label.y)
   }
   context.restore()
 }
@@ -316,19 +329,19 @@ function drawTile(context: CanvasRenderingContext2D, tile: HexTile): void {
   const { x, y } = hexToPixel(tile.q, tile.r)
   const filtered = state.terrainFilter === 'all' || (state.terrainFilter === 'water' ? tile.terrain === 'river' || tile.terrain === 'lake' || tile.terrain === 'coast' : state.terrainFilter === 'highland' ? tile.terrain === 'hill' || tile.terrain === 'mountain' : state.terrainFilter === tile.terrain)
   context.beginPath()
-  pathHex(context, x, y, HEX_SIZE - 0.5)
+  pathHex(context, x, y, HEX_SIZE - 0.035)
   context.fillStyle = state.terrainFilter !== 'all' && !filtered ? '#e1e1d5' : `#${TERRAIN[tile.terrain].color.toString(16).padStart(6, '0')}`
-  context.globalAlpha = 0.88
+  context.globalAlpha = 0.97
   context.fill()
   context.globalAlpha = 1
-  context.strokeStyle = 'rgba(83,83,71,.24)'
-  context.lineWidth = 0.65
+  context.strokeStyle = 'rgba(83,83,71,.2)'
+  context.lineWidth = 0.09
   context.stroke()
   if (state.terrainFilter !== 'all' && filtered) {
     context.beginPath()
-    pathHex(context, x, y, HEX_SIZE - 3)
+    pathHex(context, x, y, HEX_SIZE * 0.78)
     context.strokeStyle = '#876d4a'
-    context.lineWidth = 1.2
+    context.lineWidth = HEX_SIZE * 0.12
     context.stroke()
   }
   if (!state.showRelief || tile.cityCenter) return
@@ -338,23 +351,29 @@ function drawTile(context: CanvasRenderingContext2D, tile: HexTile): void {
   context.globalAlpha = 0.34
   if (tile.terrain === 'forest') {
     context.fillStyle = '#3d6552'
-    context.beginPath()
-    context.moveTo(0, -4)
-    context.lineTo(-3, 3)
-    context.lineTo(3, 3)
-    context.closePath()
-    context.fill()
+    for (const [treeX, treeY, size] of [[-2.4, 0.5, 0.7], [0, -1, 1], [2.2, 0.8, 0.65]]) {
+      context.beginPath()
+      context.moveTo(treeX, treeY - 4 * size)
+      context.lineTo(treeX - 2.8 * size, treeY + 2.5 * size)
+      context.lineTo(treeX + 2.8 * size, treeY + 2.5 * size)
+      context.closePath()
+      context.fill()
+    }
   } else if (tile.terrain === 'hill' || tile.terrain === 'mountain') {
     context.strokeStyle = '#746957'
-    context.lineWidth = tile.terrain === 'mountain' ? 1.5 : 1
+    context.lineWidth = tile.terrain === 'mountain' ? 1.5 : 0.8
     context.beginPath()
     context.moveTo(-4, 2)
-    context.lineTo(0, -3)
-    context.lineTo(4, 2)
+    context.lineTo(-1, -1)
+    context.lineTo(1.1, 2)
+    context.moveTo(-0.5, 2)
+    context.lineTo(2.3, -3)
+    context.lineTo(4.5, 2)
     if (tile.terrain === 'mountain') {
-      context.moveTo(-1.3, 2)
-      context.lineTo(2, -1.5)
-      context.lineTo(4.5, 2)
+      context.moveTo(-1.2, -0.6)
+      context.lineTo(-0.4, 0.4)
+      context.moveTo(2.3, -3)
+      context.lineTo(3.3, -0.3)
     }
     context.stroke()
   } else if (tile.terrain === 'marsh') {
@@ -366,11 +385,6 @@ function drawTile(context: CanvasRenderingContext2D, tile: HexTile): void {
     context.moveTo(-3, 1.5)
     context.quadraticCurveTo(0, 0, 3, 1.5)
     context.stroke()
-  } else if (tile.terrain === 'lake') {
-    context.fillStyle = '#599193'
-    context.beginPath()
-    context.ellipse(0, 0, 3.7, 2.7, 0, 0, Math.PI * 2)
-    context.fill()
   }
   context.restore()
 }
@@ -462,66 +476,76 @@ function drawSeaLabels(context: CanvasRenderingContext2D): void {
   context.restore()
 }
 
-/** 沿城池中心格外圈绘制城域范围，内部地形色保持不变。 */
+/** 将城域填充、内格线和外城墙全部裁切在中心加六邻格的并集内。 */
 function drawCityTerritories(context: CanvasRenderingContext2D, visibleTiles: HexTile[]): void {
+  const visibleCityIds = new Set(visibleTiles.filter((tile) => tile.cityId).map((tile) => tile.cityId))
   const edgeIndices = [1, 0, 5, 4, 3, 2]
-  context.save()
-  context.lineWidth = 1.1
-  for (const tile of visibleTiles) {
-    if (!tile.cityId) continue
-    const city = world.cities.find((entry) => entry.id === tile.cityId)
-    if (!city) continue
-    const { x, y } = hexToPixel(tile.q, tile.r)
+  for (const city of world.cities) {
+    if (!visibleCityIds.has(city.id)) continue
+    const footprint = city.tileKeys.map((key) => world.tiles.get(key)!)
+    const selected = city.id === state.city.id
     const color = `#${FACTIONS[city.faction].ink.toString(16).padStart(6, '0')}`
+    context.save()
+    context.beginPath()
+    for (const tile of footprint) pathHex(context, tile.x, tile.y, HEX_SIZE)
+    context.clip()
+    context.fillStyle = selected ? '#f4dfaa' : FACTIONS[city.faction].color
+    context.globalAlpha = selected ? 0.58 : 0.3
+    context.fill()
+    context.globalAlpha = 1
     context.strokeStyle = color
-    context.globalAlpha = city.id === state.city.id ? 0.9 : 0.5
-    context.setLineDash(city.id === state.city.id ? [] : [2, 2])
-    for (let direction = 0; direction < DIRECTIONS.length; direction++) {
-      const [dq, dr] = DIRECTIONS[direction]
-      if (world.tiles.get(hexKey(tile.q + dq, tile.r + dr))?.cityId === city.id) continue
-      const edge = edgeIndices[direction]
-      const startAngle = -Math.PI / 2 + edge * Math.PI / 3
-      const endAngle = startAngle + Math.PI / 3
-      context.beginPath()
-      context.moveTo(x + Math.cos(startAngle) * HEX_SIZE, y + Math.sin(startAngle) * HEX_SIZE)
-      context.lineTo(x + Math.cos(endAngle) * HEX_SIZE, y + Math.sin(endAngle) * HEX_SIZE)
-      context.stroke()
+    context.lineWidth = HEX_SIZE * 0.1
+    context.beginPath()
+    for (const tile of footprint) {
+      for (let direction = 0; direction < DIRECTIONS.length; direction++) {
+        const [dq, dr] = DIRECTIONS[direction]
+        if (world.tiles.get(hexKey(tile.q + dq, tile.r + dr))?.cityId === city.id) continue
+        const startAngle = -Math.PI / 2 + edgeIndices[direction] * Math.PI / 3
+        const endAngle = startAngle + Math.PI / 3
+        context.moveTo(tile.x + Math.cos(startAngle) * HEX_SIZE, tile.y + Math.sin(startAngle) * HEX_SIZE)
+        context.lineTo(tile.x + Math.cos(endAngle) * HEX_SIZE, tile.y + Math.sin(endAngle) * HEX_SIZE)
+      }
     }
+    context.lineWidth = HEX_SIZE * (selected ? 0.52 : 0.34)
+    context.lineJoin = 'miter'
+    context.stroke()
+    context.restore()
   }
-  context.restore()
 }
 
-/** 以印章、城垛和城名绘制视口内的城池节点。 */
+/** 在城心格内绘制城楼，城名以屏幕字号置于七格城墙之外。 */
 function drawCities(context: CanvasRenderingContext2D, visibleTiles: HexTile[]): void {
   const visibleCityIds = new Set(visibleTiles.filter((tile) => tile.cityId).map((tile) => tile.cityId))
   context.save()
   for (const city of world.cities) {
     if (!visibleCityIds.has(city.id)) continue
     const { x, y } = hexToPixel(city.q, city.r)
-    const color = FACTIONS[city.faction].ink
+    const color = `#${FACTIONS[city.faction].ink.toString(16).padStart(6, '0')}`
     const selected = state.city.id === city.id
-    context.globalAlpha = selected ? 1 : 0.93
     context.beginPath()
-    context.arc(x, y, selected ? HEX_SIZE * 0.82 : HEX_SIZE * 0.65, 0, Math.PI * 2)
+    pathHex(context, x, y, HEX_SIZE * 0.76)
     context.fillStyle = '#f5edda'
     context.fill()
-    context.strokeStyle = `#${color.toString(16).padStart(6, '0')}`
-    context.lineWidth = selected ? 1.2 : 0.8
+    context.strokeStyle = color
+    context.lineWidth = HEX_SIZE * 0.12
     context.stroke()
-    context.beginPath()
-    const markerSize = HEX_SIZE * 0.45
-    context.rect(x - markerSize / 2, y - markerSize / 2, markerSize, markerSize)
-    context.fillStyle = `#${color.toString(16).padStart(6, '0')}`
-    context.fill()
-    context.globalAlpha = 1
+    context.fillStyle = color
+    const size = HEX_SIZE * 0.5
+    context.fillRect(x - size, y - size * 0.25, size * 2, size)
+    for (let turret = -1; turret <= 1; turret++) {
+      context.fillRect(x + turret * size * 0.7 - size * 0.2, y - size * 0.65, size * 0.4, size * 0.65)
+    }
+    context.fillStyle = '#f5edda'
+    context.fillRect(x - size * 0.18, y + size * 0.15, size * 0.36, size * 0.6)
     if (state.showLabels || selected) {
+      const labelY = y - HEX_SIZE * 3 - 5 / state.zoom
       context.textAlign = 'center'
-      context.font = selected ? '700 13px "Noto Serif SC", serif' : '600 10px "Noto Serif SC", serif'
-      context.lineWidth = 3.5
-      context.strokeStyle = 'rgba(239,238,221,.94)'
-      context.strokeText(city.name, x, y - 10)
+      context.font = `${selected ? 700 : 600} ${(selected ? 14 : 12) / state.zoom}px "Noto Serif SC", serif`
+      context.lineWidth = 3 / state.zoom
+      context.strokeStyle = 'rgba(239,238,221,.96)'
+      context.strokeText(city.name, x, labelY)
       context.fillStyle = selected ? '#5a3f32' : '#574d43'
-      context.fillText(city.name, x, y - 10)
+      context.fillText(city.name, x, labelY)
     }
   }
   context.restore()
