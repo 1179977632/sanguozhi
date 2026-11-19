@@ -134,6 +134,10 @@ const state = {
   route: [] as HexTile[],
   routeCost: 0,
   routeStart: null as HexTile | null,
+  /** 已提交查询的起点，独立于选点过程中的临时起点。 */
+  routeFrom: null as HexTile | null,
+  /** 已提交查询的终点，配置变化时据此重新寻路。 */
+  routeTo: null as HexTile | null,
   pathMode: false,
   terrainFilter: 'all',
   showLabels: true,
@@ -635,27 +639,50 @@ function selectRouteWaypoint(tile: HexTile): void {
   if (!state.routeStart) {
     state.routeStart = tile
     state.route = []
+    state.routeCost = 0
+    state.routeFrom = null
+    state.routeTo = null
     statusLine.textContent = '选择一个目的地'
     routeReport.innerHTML = `<span class="route-dot"></span>出发于 ${TERRAIN[tile.terrain].name} · 再点选目的地`
     scheduleMap()
     return
   }
-  const options = readMovementOptions()
-  const path = findPath(world, state.routeStart, tile, options)
-  if (!path) {
-    routeReport.innerHTML = '<span class="route-dot route-dot--danger"></span>此路不通 · 试试舟船或棧道'
-    statusLine.textContent = '无法到达此处'
-    return
-  }
-  state.route = path.tiles
-  state.routeCost = path.cost
-  routeReport.innerHTML = `<span class="route-dot"></span>${path.tiles.length - 1} 格行程 <strong>${path.cost} 移动力</strong>`
-  statusLine.textContent = `路径已规划 · 共 ${path.tiles.length - 1} 格`
+  state.routeFrom = state.routeStart
+  state.routeTo = tile
   state.routeStart = null
   state.pathMode = false
   routeButton.classList.remove('tool-button--active')
   routeButton.setAttribute('aria-pressed', 'false')
+  refreshRoute()
+}
+
+/** 按当前行军配置重算已提交路线；无路时清空旧线但保留起终点，便于恢复装备后自动重算。 */
+function refreshRoute(): void {
+  if (!state.routeFrom || !state.routeTo) return
+  const start = world.tiles.get(hexKey(state.routeFrom.q, state.routeFrom.r))
+  const end = world.tiles.get(hexKey(state.routeTo.q, state.routeTo.r))
+  if (!start || !end) return
+  const path = findPath(world, start, end, readMovementOptions())
+  if (!path) {
+    state.route = []
+    state.routeCost = 0
+    routeReport.innerHTML = '<span class="route-dot route-dot--danger"></span>此路不通 · 试试舟船或棧道'
+    statusLine.textContent = '无法到达此处'
+    scheduleMap()
+    return
+  }
+  state.route = path.tiles
+  state.routeCost = path.cost
+  const steps = path.tiles.length - 1
+  routeReport.innerHTML = `<span class="route-dot"></span>${steps} 格行程 <strong>${path.cost} 移动力</strong>`
+  statusLine.textContent = `路径已规划 · 共 ${steps} 格`
   scheduleMap()
+}
+
+/** 行军配置变化后同步地形详情与已规划路线。 */
+function applyMovementChange(): void {
+  updateSelection()
+  refreshRoute()
 }
 
 /** 从界面读取步兵、骑兵、辎重及工具选项。 */
@@ -777,9 +804,9 @@ function initializeControls(): void {
   }))
   citySearchInput.addEventListener('input', renderCityList)
   document.querySelector('#faction-filter')?.addEventListener('change', renderCityList)
-  unitSelect.addEventListener('change', updateSelection)
-  boatToggle.addEventListener('change', updateSelection)
-  plankToggle.addEventListener('change', updateSelection)
+  unitSelect.addEventListener('change', applyMovementChange)
+  boatToggle.addEventListener('change', applyMovementChange)
+  plankToggle.addEventListener('change', applyMovementChange)
   document.querySelectorAll<HTMLButtonElement>('[data-filter]').forEach((button) => button.addEventListener('click', () => {
     document.querySelector('.terrain-filter--active')?.classList.remove('terrain-filter--active')
     button.classList.add('terrain-filter--active')
@@ -807,6 +834,10 @@ function initializeControls(): void {
   routeButton.addEventListener('click', () => {
     state.pathMode = !state.pathMode
     state.routeStart = null
+    state.route = []
+    state.routeCost = 0
+    state.routeFrom = null
+    state.routeTo = null
     routeButton.classList.toggle('tool-button--active', state.pathMode)
     routeButton.setAttribute('aria-pressed', String(state.pathMode))
     statusLine.textContent = state.pathMode ? '选取起点，再选取目的地' : '浏览模式'
@@ -815,7 +846,10 @@ function initializeControls(): void {
   })
   document.querySelector<HTMLButtonElement>('#clear-route')?.addEventListener('click', () => {
     state.route = []
+    state.routeCost = 0
     state.routeStart = null
+    state.routeFrom = null
+    state.routeTo = null
     state.pathMode = false
     routeButton.classList.remove('tool-button--active')
     routeButton.setAttribute('aria-pressed', 'false')
@@ -852,9 +886,13 @@ function handleKeyboard(event: KeyboardEvent): void {
   if (event.key === 'Escape' && state.pathMode) {
     state.pathMode = false
     state.routeStart = null
+    state.route = []
+    state.routeCost = 0
+    state.routeFrom = null
+    state.routeTo = null
     routeButton.classList.remove('tool-button--active')
     routeButton.setAttribute('aria-pressed', 'false')
-    routeReport.innerHTML = state.route.length ? `<span class="route-dot"></span>路径已规划 · 共 ${state.route.length} 格` : '<span class="route-dot"></span>尚未规划行军路线'
+    routeReport.innerHTML = '<span class="route-dot"></span>尚未规划行军路线'
     statusLine.textContent = '浏览模式'
     scheduleMap()
   }

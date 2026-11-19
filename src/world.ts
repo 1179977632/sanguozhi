@@ -37,12 +37,44 @@ export interface MovementOptions {
   plank: boolean
 }
 
+export interface RiverRoute {
+  name: string
+  /** 该河在最终地图上的连续水道格，按上游到下游顺序排列。 */
+  tileKeys: string[]
+}
+
+export interface Confluence {
+  lon: number
+  lat: number
+  tileKey: string
+  /** 在此共享顶点相交的河流；仅由原始折线共同顶点推导，不按距离猜测。 */
+  rivers: string[]
+}
+
+export interface PassRoute {
+  name: string
+  /** 关联山脊；未找到邻近山脊的道口不承担穿脊功能。 */
+  range?: string
+  /** 是否确实切开了原有山体。 */
+  crossed: boolean
+  tileKeys: string[]
+}
+
+export interface ConnectivityIssue {
+  kind: 'river-gap' | 'confluence' | 'pass-gap' | 'pass-blocked'
+  subject: string
+  detail: string
+}
+
 export interface World {
   tiles: Map<string, HexTile>
   cities: City[]
   width: number
   height: number
   seed: number
+  rivers: RiverRoute[]
+  confluences: Confluence[]
+  passes: PassRoute[]
 }
 
 interface CityRecord extends Omit<City, 'q' | 'r' | 'tileKeys'> {}
@@ -206,7 +238,9 @@ function meanderRiver(points: GeoPoint[], riverSeed: number, amplitude: number):
       const lat = first.lat + (second.lat - first.lat) * t
       // 按弧长采样一维噪声：大弯约十余格一折，小弯数格一抖，整条河弯曲频率一致。
       const distance = (walked + length * t) * GEO_SCALE_X
-      const sway = ((alongNoise(riverSeed, distance / 26, 1) - 0.5) * 1.5 + (alongNoise(riverSeed + 19, distance / 9, 1) - 0.5) * 0.7) * amplitude
+      const rawSway = ((alongNoise(riverSeed, distance / 26, 1) - 0.5) * 1.5 + (alongNoise(riverSeed + 19, distance / 9, 1) - 0.5) * 0.7) * amplitude
+      // 端点权重归零，使折线控制点（含汇流点）不被河曲扰动挪动。
+      const sway = rawSway * Math.sin(Math.PI * t)
       meandered.push({ lon: lon - (dy / length) * sway / longitudeScale, lat: lat + (dx / length) * sway })
     }
     walked += length
@@ -315,7 +349,7 @@ export function geoToPixel(lon: number, lat: number): { x: number; y: number } {
   return { x: 245 + (lon - GEO_LEFT) * GEO_SCALE_X, y: 112 + (GEO_TOP - lat) * GEO_SCALE_Y }
 }
 
-/** 統一生成地形網格、海岸帶與具有七格城域的三國城池。 */
+/** 統一生成地形網格、海岸帶、具名山道與具有七格城域的三國城池。 */
 export function createWorld(seed = 189): World {
   const tiles = new Map<string, HexTile>()
   const cityCenters: { city: City; tiles: HexTile[] }[] = []
@@ -336,11 +370,15 @@ export function createWorld(seed = 189): World {
     }
   }
 
-  rasterizeRivers(tiles)
+  // 先成河，再开山道，最后落城，避免后续步骤破坏已完成的连通性。
+  const rivers = rasterizeRivers(tiles)
+  const confluences = findExplicitConfluences(tiles)
+  const passes = carveMountainPasses(tiles)
+  const passTiles = new Set(passes.flatMap((pass) => pass.tileKeys))
 
   for (const record of CITY_RECORDS) {
     const target = geoToPixel(record.lon, record.lat)
-    const center = findCityCenter(target.x, target.y, tiles, reserved)
+    const center = findCityCenter(target.x, target.y, tiles, reserved, passTiles)
     if (!center) continue
     const city: City = { ...record, q: center.q, r: center.r, tileKeys: [] }
     const footprint: HexTile[] = []
@@ -360,7 +398,7 @@ export function createWorld(seed = 189): World {
     cityCenters.push({ city, tiles: footprint })
   }
 
-  return { tiles, cities: cityCenters.map(({ city }) => city), width: WORLD_WIDTH, height: WORLD_HEIGHT, seed }
+  return { tiles, cities: cityCenters.map(({ city }) => city), width: WORLD_WIDTH, height: WORLD_HEIGHT, seed, rivers, confluences, passes }
 }
 
 /** 返回可在本世界已生成地图範圍內直達的鄰接格。 */
@@ -425,6 +463,53 @@ export function findPath(world: World, start: HexTile, end: HexTile, options: Mo
   return null
 }
 
+/** 复核最终地图的河道连续、显式汇流与山道通行，返回可读问题清单。 */
+export function auditConnectivity(world: World): ConnectivityIssue[] {
+  const issues: ConnectivityIssue[] = []
+  const describe = (before: HexTile, after: HexTile): string => `${before.lon.toFixed(2)},${before.lat.toFixed(2)} → ${after.lon.toFixed(2)},${after.lat.toFixed(2)}`
+
+  for (const route of world.rivers) {
+    for (let index = 1; index < route.tileKeys.length; index++) {
+      const before = world.tiles.get(route.tileKeys[index - 1]!)
+      const after = world.tiles.get(route.tileKeys[index]!)
+      if (!before || !after) {
+        issues.push({ kind: 'river-gap', subject: route.name, detail: '河道记录包含未生成的格子' })
+        continue
+      }
+      if (!isSameOrAdjacent(before, after)) issues.push({ kind: 'river-gap', subject: route.name, detail: `断点 ${describe(before, after)}` })
+    }
+  }
+
+  for (const confluence of world.confluences) {
+    const tile = world.tiles.get(confluence.tileKey)
+    const isWater = tile && (tile.terrain === 'river' || tile.terrain === 'lake' || tile.terrain === 'coast')
+    if (!isWater) {
+      issues.push({ kind: 'confluence', subject: confluence.rivers.join('·'), detail: '汇流点不是水道格' })
+      continue
+    }
+    for (const name of confluence.rivers) {
+      const route = world.rivers.find((entry) => entry.name === name)
+      if (!route || !route.tileKeys.includes(confluence.tileKey)) issues.push({ kind: 'confluence', subject: name, detail: '未接入共享汇流点' })
+    }
+  }
+
+  for (const pass of world.passes) {
+    for (let index = 0; index < pass.tileKeys.length; index++) {
+      const tile = world.tiles.get(pass.tileKeys[index]!)
+      if (!tile) {
+        issues.push({ kind: 'pass-gap', subject: pass.name, detail: '通道记录包含未生成的格子' })
+        continue
+      }
+      if (tile.terrain === 'mountain') issues.push({ kind: 'pass-blocked', subject: pass.name, detail: `山道仍被山体阻断 ${tile.lon.toFixed(2)},${tile.lat.toFixed(2)}` })
+      if (!index) continue
+      const previous = world.tiles.get(pass.tileKeys[index - 1]!)
+      if (previous && !isSameOrAdjacent(previous, tile)) issues.push({ kind: 'pass-gap', subject: pass.name, detail: '通道格不连续' })
+    }
+  }
+
+  return issues
+}
+
 /** 生成帶坐標容差的地理地形，不在青藏高原和遠海散布格子。 */
 function isLand(lon: number, lat: number): boolean {
   return pointInPolygon(lon, lat, LAND_OUTLINE)
@@ -482,14 +567,15 @@ function getLandTerrain(lon: number, lat: number, seed: number): { terrain: Terr
 }
 
 /** 在历史点十格范围内按实际像素距离选择可居住且完整七格未占用的城心。 */
-function findCityCenter(x: number, y: number, tiles: Map<string, HexTile>, reserved: Set<string>): HexTile | undefined {
+function findCityCenter(x: number, y: number, tiles: Map<string, HexTile>, reserved: Set<string>, passTiles: Set<string>): HexTile | undefined {
   const { q, r } = pixelToHex(x, y)
   let best: { tile: HexTile; distance: number } | undefined
   for (let dq = -10; dq <= 10; dq++) {
     for (let dr = -10; dr <= 10; dr++) {
       if (Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)) > 10) continue
       const tile = tiles.get(hexKey(q + dq, r + dr))
-      if (!tile || !['plain', 'forest', 'hill'].includes(tile.terrain)) continue
+      // 城心会被改成平原，因此必须避开山道通道，避免把通道切断。
+      if (!tile || passTiles.has(hexKey(tile.q, tile.r)) || !['plain', 'forest', 'hill'].includes(tile.terrain)) continue
       const footprint = CITY_OFFSETS.map(([oq, or]) => tiles.get(hexKey(tile.q + oq, tile.r + or)))
       // 城域七格只允许平原、林地、丘陵与河流，避免沼泽、湖海和孤峰落进城内。
       if (footprint.some((entry) => !entry || entry.terrain === 'coast' || entry.terrain === 'lake' || entry.terrain === 'mountain' || entry.terrain === 'marsh' || reserved.has(hexKey(entry.q, entry.r)))) continue
@@ -500,27 +586,164 @@ function findCityCenter(x: number, y: number, tiles: Map<string, HexTile>, reser
   return best?.tile
 }
 
-/** 以小于六边形半径的像素步长栅格化河道，保留湖泊与近海原貌。 */
-function rasterizeRivers(tiles: Map<string, HexTile>): void {
+/** 判断两个格子是否相同或六向相邻。 */
+function isSameOrAdjacent(first: HexTile, second: HexTile): boolean {
+  if (first.q === second.q && first.r === second.r) return true
+  return DIRECTIONS.some(([dq, dr]) => first.q + dq === second.q && first.r + dr === second.r)
+}
+
+/** 在两个六边形之间按立方坐标插值，返回含首尾的连续格序列。 */
+function hexLine(from: HexTile, to: HexTile): { q: number; r: number }[] {
+  const distance = axialDistance(from, to)
+  if (!distance) return [{ q: from.q, r: from.r }]
+  const points: { q: number; r: number }[] = []
+  for (let step = 0; step <= distance; step++) {
+    const t = step / distance
+    const point = hexToPixel(from.q + (to.q - from.q) * t, from.r + (to.r - from.r) * t)
+    points.push(pixelToHex(point.x, point.y))
+  }
+  return points
+}
+
+/** 把河名覆盖到陆地格；湖泊与近海保持原地貌，只视为河道流经。 */
+function stampRiver(tile: HexTile, riverName: string): void {
+  if (tile.terrain === 'lake' || tile.terrain === 'coast') return
+  tile.terrain = 'river'
+  tile.landform = riverName
+  tile.relief = 0.02
+}
+
+/** 以小于六边形半径的步长栅格化河道，记录每条河的连续水道并补齐采样断点。 */
+function rasterizeRivers(tiles: Map<string, HexTile>): RiverRoute[] {
+  const routes: RiverRoute[] = []
   for (const river of RIVERS) {
     const path = RIVER_PATHS.get(river)!
+    const tileKeys: string[] = []
+    const record = (tile: HexTile): void => {
+      stampRiver(tile, river.name)
+      const key = hexKey(tile.q, tile.r)
+      if (tileKeys.at(-1) !== key) tileKeys.push(key)
+    }
+    let previous: HexTile | undefined
     for (let index = 1; index < path.length; index++) {
       const first = path[index - 1]!
       const second = path[index]!
       const start = geoToPixel(first.lon, first.lat)
       const end = geoToPixel(second.lon, second.lat)
-      const steps = Math.ceil(Math.hypot(end.x - start.x, end.y - start.y) / (HEX_SIZE / 4))
+      const steps = Math.max(1, Math.ceil(Math.hypot(end.x - start.x, end.y - start.y) / (HEX_SIZE / 4)))
       for (let step = 0; step <= steps; step++) {
         const t = step / steps
         const hex = pixelToHex(start.x + (end.x - start.x) * t, start.y + (end.y - start.y) * t)
         const tile = tiles.get(hexKey(hex.q, hex.r))
-        if (tile && tile.terrain !== 'lake' && tile.terrain !== 'coast') {
-          tile.terrain = 'river'
-          tile.landform = river.name
+        // 河道出图属于边界裁剪，不按断流处理。
+        if (!tile) {
+          previous = undefined
+          continue
         }
+        if (previous && !isSameOrAdjacent(previous, tile)) {
+          for (const entry of hexLine(previous, tile)) {
+            const bridged = tiles.get(hexKey(entry.q, entry.r))
+            if (bridged) record(bridged)
+          }
+        } else {
+          record(tile)
+        }
+        previous = tile
       }
     }
+    routes.push({ name: river.name, tileKeys })
   }
+  return routes
+}
+
+/** 由河道折线的共享控制顶点推导显式汇流点，邻近但未共享顶点不算汇流。 */
+function findExplicitConfluences(tiles: Map<string, HexTile>): Confluence[] {
+  const groups = new Map<string, { lon: number; lat: number; rivers: Set<string> }>()
+  for (const river of RIVERS) {
+    for (const point of river.points) {
+      const key = `${point.lon.toFixed(4)},${point.lat.toFixed(4)}`
+      const group = groups.get(key) ?? { lon: point.lon, lat: point.lat, rivers: new Set<string>() }
+      group.rivers.add(river.name)
+      groups.set(key, group)
+    }
+  }
+  const confluences: Confluence[] = []
+  for (const group of groups.values()) {
+    if (group.rivers.size < 2) continue
+    const pixel = geoToPixel(group.lon, group.lat)
+    const hex = pixelToHex(pixel.x, pixel.y)
+    const tileKey = hexKey(hex.q, hex.r)
+    if (!tiles.has(tileKey)) continue
+    confluences.push({ lon: group.lon, lat: group.lat, tileKey, rivers: [...group.rivers] })
+  }
+  return confluences
+}
+
+/** 找到最近山脊线段，返回山脊名与单位切线；超出搜索距离视为附近无山脊。 */
+function closestRidgeFrame(point: GeoPoint, maxDistance: number): { rangeName: string; tangent: { lon: number; lat: number } } | undefined {
+  const cos = Math.cos(point.lat * Math.PI / 180) || 1
+  const planeX = point.lon * cos
+  let best: { distance: number; rangeName: string; tangent: { lon: number; lat: number } } | undefined
+  for (const range of MOUNTAIN_RANGES) {
+    const bounds = MOUNTAIN_RANGE_BOUNDS.get(range)!
+    if (point.lon < bounds.minLon - maxDistance || point.lon > bounds.maxLon + maxDistance || point.lat < bounds.minLat - maxDistance || point.lat > bounds.maxLat + maxDistance) continue
+    const points = RIDGE_PATHS.get(range)!
+    for (let index = 1; index < points.length; index++) {
+      const first = points[index - 1]!
+      const second = points[index]!
+      const projection = segmentProjection(planeX, point.lat, first.lon * cos, first.lat, second.lon * cos, second.lat)
+      if (best && projection.distance >= best.distance) continue
+      const dx = (second.lon - first.lon) * cos
+      const dy = second.lat - first.lat
+      const length = Math.hypot(dx, dy) || 1
+      best = { distance: projection.distance, rangeName: range.name, tangent: { lon: dx / length, lat: dy / length } }
+    }
+  }
+  if (!best || best.distance > maxDistance) return undefined
+  return { rangeName: best.rangeName, tangent: best.tangent }
+}
+
+/** 沿山脊法线为具名山道开辟连续丘陵通道，只切山体，不改动河道与湖泊。 */
+function carveMountainPasses(tiles: Map<string, HexTile>): PassRoute[] {
+  return MOUNTAIN_PASSES.map((pass) => {
+    const frame = closestRidgeFrame(pass, 0.7)
+    if (!frame) return { name: pass.name, crossed: false, tileKeys: [] }
+    const cos = Math.cos(pass.lat * Math.PI / 180) || 1
+    const normal = { lon: -frame.tangent.lat / cos, lat: frame.tangent.lon }
+    const tileKeys: string[] = []
+    let crossed = false
+    let previous: HexTile | undefined
+    const carve = (tile: HexTile): void => {
+      if (tile.terrain === 'mountain') {
+        tile.terrain = 'hill'
+        tile.landform = pass.name
+        tile.relief = Math.min(tile.relief ?? 0.3, 0.3)
+        crossed = true
+      }
+      const key = hexKey(tile.q, tile.r)
+      if (tileKeys.at(-1) !== key) tileKeys.push(key)
+    }
+    // 以山口为中心沿法线各外扩约一度，足以穿出示意山脊的厚度。
+    for (let offset = -0.95; offset <= 0.95 + 1e-9; offset += 0.045) {
+      const pixel = geoToPixel(pass.lon + normal.lon * offset, pass.lat + normal.lat * offset)
+      const hex = pixelToHex(pixel.x, pixel.y)
+      const tile = tiles.get(hexKey(hex.q, hex.r))
+      if (!tile) {
+        previous = undefined
+        continue
+      }
+      if (previous && !isSameOrAdjacent(previous, tile)) {
+        for (const entry of hexLine(previous, tile)) {
+          const bridged = tiles.get(hexKey(entry.q, entry.r))
+          if (bridged) carve(bridged)
+        }
+      } else {
+        carve(tile)
+      }
+      previous = tile
+    }
+    return { name: pass.name, range: frame.rangeName, crossed, tileKeys }
+  })
 }
 
 /** 返回最近河段及其河名和宽度，并以线段包围盒跳过远处水系。 */
