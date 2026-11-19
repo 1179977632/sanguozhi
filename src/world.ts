@@ -1,5 +1,5 @@
 export type TerrainId = 'plain' | 'forest' | 'hill' | 'mountain' | 'marsh' | 'river' | 'lake' | 'coast'
-export type FactionId = 'cao' | 'liubiao' | 'sun' | 'liuzhang' | 'local'
+export type FactionId = 'cao' | 'liubiao' | 'sun' | 'liuzhang' | 'zhanglu' | 'shixie' | 'local'
 
 export interface HexTile {
   q: number
@@ -69,7 +69,9 @@ export const FACTIONS: Record<FactionId, { name: string; color: string; ink: num
   liubiao: { name: '劉表', color: '#91a58a', ink: 0x4b684e },
   sun: { name: '孫權', color: '#668b91', ink: 0x3f686a },
   liuzhang: { name: '劉璋', color: '#b99a6b', ink: 0x79613d },
-  local: { name: '地方勢力', color: '#a5a18e', ink: 0x736d5d },
+  zhanglu: { name: '張魯', color: '#9c8ca8', ink: 0x655271 },
+  shixie: { name: '士燮', color: '#9a777e', ink: 0x69484e },
+  local: { name: '地方/待考', color: '#a5a18e', ink: 0x736d5d },
 }
 
 export const DIRECTIONS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
@@ -240,44 +242,45 @@ const FOREST_REGIONS: GeoPoint[][] = [
 const CITY_RECORDS: CityRecord[] = [
   { id: 'chengdu', name: '成都', en: 'CHENGDU', province: '益州', prefecture: '蜀郡', faction: 'liuzhang', lon: 104.0668, lat: 30.5728, description: '益州治所，據成都平原沃土，西川兵糧之源。' },
   { id: 'luoyang', name: '洛陽', en: 'LUOYANG', province: '司隸', prefecture: '河南尹', faction: 'cao', lon: 112.454, lat: 34.6197, description: '東漢舊都，北臨黃河，南屏嵩山，為天下中樞。' },
-  { id: 'xuchang', name: '許昌', en: 'XUCHANG', province: '豫州', prefecture: '潁川郡', faction: 'cao', lon: 113.8526, lat: 34.0357, description: '許縣為漢廷所在，曹操挾天子以令諸侯的政治中心。' },
-  { id: 'chang-an', name: '長安', en: 'CHANGAN', province: '雍州', prefecture: '京兆尹', faction: 'cao', lon: 108.94, lat: 34.26, description: '關中故都，東扼函谷，西通隴蜀，足為關中根本。' },
+  { id: 'xuchang', name: '許縣', en: 'XUXIAN', province: '豫州', prefecture: '潁川郡', faction: 'cao', lon: 113.8526, lat: 34.0357, description: '許縣為漢廷所在，曹操挾天子以令諸侯的政治中心。' },
+  { id: 'chang-an', name: '長安', en: 'CHANGAN', province: '司隸', prefecture: '京兆尹', faction: 'cao', lon: 108.94, lat: 34.26, description: '關中故都，建安十三年仍屬司隸京兆尹。' },
   { id: 'ye', name: '鄴', en: 'YE', province: '冀州', prefecture: '魏郡', faction: 'cao', lon: 114.6, lat: 36.33, description: '河北要城，曹操經營北方的根基之一，控帶太行與平原。' },
   { id: 'beiping', name: '北平', en: 'BEIPING', province: '幽州', prefecture: '右北平郡', faction: 'cao', lon: 118.9, lat: 39.88, description: '幽燕北疆重鎮，南通冀州，北扼燕山諸道。' },
   { id: 'jinyang', name: '晉陽', en: 'JINYANG', province: '并州', prefecture: '太原郡', faction: 'cao', lon: 112.55, lat: 37.87, description: '太原盆地雄城，西望呂梁，東臨太行。' },
   { id: 'pingyuan', name: '平原', en: 'PINGYUAN', province: '青州', prefecture: '平原郡', faction: 'cao', lon: 116.36, lat: 37.43, description: '黃河下游平原郡城，扼守冀州、青州往來之路。' },
   { id: 'nanpi', name: '南皮', en: 'NANPI', province: '冀州', prefecture: '勃海郡', faction: 'cao', lon: 116.7, lat: 38.04, description: '勃海郡治，瀕近燕趙海口，素為河北軍事重地。' },
-  { id: 'xiapi', name: '下邳', en: 'XIAPI', province: '徐州', prefecture: '下邳國', faction: 'cao', lon: 117.2, lat: 34.3, description: '淮泗間水陸要塞，守徐州者可據以制淮北。' },
-  { id: 'beihai', name: '北海', en: 'BEIHAI', province: '青州', prefecture: '北海國', faction: 'cao', lon: 118.48, lat: 36.69, description: '青州東境郡城，北接萊州海濱，南通琅琊。' },
+  { id: 'xiapi', name: '下邳', en: 'XIAPI', province: '徐州', prefecture: '下邳郡', faction: 'cao', lon: 117.88689, lat: 34.11826, description: '建安十一年下邳國除為郡；郡治下邳，控淮泗水陸要道。' },
+  { id: 'beihai', name: '北海', en: 'BEIHAI', province: '青州', prefecture: '北海郡', faction: 'cao', lon: 118.48, lat: 36.69, description: '建安十一年北海國除為郡；郡治劇縣，位於青州東境。' },
   { id: 'puyang', name: '濮陽', en: 'PUYANG', province: '兗州', prefecture: '濮陽縣', faction: 'cao', lon: 115.03, lat: 35.76, description: '兗州黃河津渡要城，為中原北門之一。' },
   { id: 'chenliu', name: '陳留', en: 'CHENLIU', province: '兗州', prefecture: '陳留郡', faction: 'cao', lon: 114.3, lat: 34.8, description: '汴渠與中原驛路交會，東西轉運皆經其境。' },
   { id: 'runan', name: '汝南', en: 'RUNAN', province: '豫州', prefecture: '汝南郡', faction: 'cao', lon: 114.36, lat: 33.01, description: '豫州南郡，水網與沃土交錯，兵員糧源充足。' },
   { id: 'shouchun', name: '壽春', en: 'SHOUCHUN', province: '揚州', prefecture: '九江郡', faction: 'cao', lon: 116.79, lat: 32.57, description: '淮南重鎮，北拒中原，南通合肥與江東。' },
-  { id: 'hefei', name: '合肥', en: 'HEFEI', province: '揚州', prefecture: '廬江郡', faction: 'cao', lon: 117.23, lat: 31.82, description: '淮南水陸咽喉，扼守江淮之間的南北通道。' },
+  { id: 'hefei', name: '合肥', en: 'HEFEI', province: '揚州', prefecture: '九江郡', faction: 'cao', lon: 117.23, lat: 31.82, description: '東漢合肥侯國屬九江郡，為淮南水陸咽喉。' },
   { id: 'jianye', name: '秣陵', en: 'MOLING', province: '揚州', prefecture: '丹陽郡', faction: 'sun', lon: 118.79, lat: 32.06, description: '丹陽郡境大江津渡，孫權所據江東腹地，舟楫可達諸郡。' },
   { id: 'wu', name: '吳郡', en: 'WU', province: '揚州', prefecture: '吳郡', faction: 'sun', lon: 120.62, lat: 31.3, description: '江東膏腴之地，湖蕩相間，桑麻與舟楫俱盛。' },
   { id: 'kuaiji', name: '會稽', en: 'KUAJI', province: '揚州', prefecture: '會稽郡', faction: 'sun', lon: 120.58, lat: 30, description: '東南沿海郡治，山越環伺，港汊綿延。' },
-  { id: 'lujiang', name: '廬江', en: 'LUJIANG', province: '揚州', prefecture: '廬江郡', faction: 'sun', lon: 116.56, lat: 31.48, description: '江淮間的山川郡城，西接蘄春，東連丹陽。' },
+  { id: 'lujiang', name: '皖城', en: 'WAN', province: '揚州', prefecture: '廬江郡', faction: 'local', lon: 116.57, lat: 30.63, description: '孫策於建安四年（199）襲取皖城，後由李術守城；建安十三年此城實際控制方待考，點位為近似定位。' },
   { id: 'chaishang', name: '柴桑', en: 'CHAISANG', province: '揚州', prefecture: '豫章郡', faction: 'sun', lon: 115.99, lat: 29.73, description: '長江與鄱陽湖之間的要津，通江東而控荊州。' },
-  { id: 'jiangxia', name: '江夏', en: 'JIANGXIA', province: '荊州', prefecture: '江夏郡', faction: 'sun', lon: 114.31, lat: 30.59, description: '漢水入江之口，連接荊襄與江東水道。' },
-  { id: 'xiangyang', name: '襄陽', en: 'XIANGYANG', province: '荊州', prefecture: '襄陽郡', faction: 'liubiao', lon: 112.14, lat: 32.04, description: '漢水北岸重城，控扼荊州北門與南北交通。' },
+  // 208 年春孫權破黃祖後所得江夏南境；此點僅代表沙羨，不代表全江夏郡。
+  { id: 'jiangxia', name: '沙羨', en: 'SHAXIAN', province: '荊州', prefecture: '江夏郡', faction: 'sun', lon: 114.13541, lat: 30.34289, description: '孫權破黃祖後所據江夏南境，沙羨為吳江夏郡治；此點不代表全江夏郡歸屬。' },
+  { id: 'xiangyang', name: '襄陽', en: 'XIANGYANG', province: '荊州', prefecture: '南郡', faction: 'liubiao', lon: 112.14, lat: 32.04, description: '劉表所據荊州重城，此時屬南郡；襄陽郡為劉琮降曹後分置，尚未發生。' },
   { id: 'jiangling', name: '江陵', en: 'JIANGLING', province: '荊州', prefecture: '南郡', faction: 'liubiao', lon: 112.19, lat: 30.35, description: '南郡治所，據長江中游，東西荊州交界之戰略樞紐。' },
   { id: 'changsha', name: '長沙', en: 'CHANGSHA', province: '荊州', prefecture: '長沙郡', faction: 'liubiao', lon: 112.94, lat: 28.23, description: '湘水穿城而過，南望嶺表，為荊州南部大郡。' },
   { id: 'wuling', name: '武陵', en: 'WULING', province: '荊州', prefecture: '武陵郡', faction: 'liubiao', lon: 111.69, lat: 29.03, description: '五溪與武陵山交界之處，通巴蜀、荊南之路。' },
   { id: 'lingling', name: '零陵', en: 'LINGLING', province: '荊州', prefecture: '零陵郡', faction: 'liubiao', lon: 111.61, lat: 26.42, description: '湘水上游之郡，北通荊南，南入五嶺山道。' },
   { id: 'guiyang', name: '桂陽', en: 'GUIYANG', province: '荊州', prefecture: '桂陽郡', faction: 'liubiao', lon: 113.02, lat: 25.79, description: '五嶺北麓關隘郡城，據南北轉運與山道隘口。' },
-  { id: 'hanzhong', name: '漢中', en: 'HANZHONG', province: '益州', prefecture: '漢中郡', faction: 'local', lon: 107.02, lat: 33.07, description: '漢水源頭盆地，秦嶺與大巴山間的北方門戶。' },
+  { id: 'hanzhong', name: '漢中', en: 'HANZHONG', province: '益州', prefecture: '漢中郡', faction: 'zhanglu', lon: 107.02, lat: 33.07, description: '張魯據漢中，與劉璋割據爭戰；僅示城邑控制，不推定巴漢精確疆界。' },
   { id: 'zitong', name: '梓潼', en: 'ZITONG', province: '益州', prefecture: '梓潼縣', faction: 'liuzhang', lon: 105.17, lat: 31.64, description: '益州北道要地，連通漢中棧道與成都平原。' },
   { id: 'jiangzhou', name: '江州', en: 'JIANGZHOU', province: '益州', prefecture: '巴郡', faction: 'liuzhang', lon: 106.55, lat: 29.56, description: '嘉陵、長江交會之城，居巴蜀水陸轉運中心。' },
-  { id: 'yongan', name: '魚復', en: 'YUFU', province: '益州', prefecture: '巴郡東部', faction: 'liuzhang', lon: 109.47, lat: 31.02, description: '魚復縣臨長江峽口，扼守巴郡東部水陸通道。' },
-  { id: 'wudu', name: '武都', en: 'WUDU', province: '雍州', prefecture: '武都郡', faction: 'local', lon: 104.92, lat: 33.4, description: '隴蜀山口間的軍事要地，控南北棧道。' },
-  { id: 'tianshui', name: '天水', en: 'TIANSHUI', province: '雍州', prefecture: '天水郡', faction: 'cao', lon: 105.72, lat: 34.58, description: '秦隴交通要衝，東望關中，南接漢中山道。' },
-  { id: 'anding', name: '安定', en: 'ANDING', province: '雍州', prefecture: '安定郡', faction: 'cao', lon: 104.67, lat: 35.56, description: '隴右要郡，連結河西與關中之間的軍道。' },
-  { id: 'wuwei', name: '武威', en: 'WUWEI', province: '涼州', prefecture: '武威郡', faction: 'local', lon: 102.64, lat: 37.93, description: '河西走廊東部郡城，往來西域與中原之要道。' },
-  { id: 'yunnan', name: '雲南', en: 'YUNNAN', province: '益州', prefecture: '益州郡', faction: 'local', lon: 100.3, lat: 25.58, description: '滇池與高原諸部之間的郡城，南控山地道路。' },
-  { id: 'jianning', name: '味縣', en: 'WEIXIAN', province: '益州', prefecture: '益州郡', faction: 'local', lon: 103.8, lat: 25.5, description: '滇東高原郡縣，位於益州郡東部，周邊多山地與地方部族。' },
-  { id: 'nanhai', name: '南海', en: 'NANHAI', province: '交州', prefecture: '南海郡', faction: 'local', lon: 113.27, lat: 23.12, description: '嶺南海上門戶，港浦眾多，溝通南海與交廣。' },
-  { id: 'jiaozhi', name: '交趾', en: 'JIAOZHI', province: '交州', prefecture: '交趾郡', faction: 'local', lon: 105.84, lat: 21.02, description: '交州南部郡治，紅河平原豐饒，為嶺南遠南之地。' },
+  { id: 'yongan', name: '魚復', en: 'YUFU', province: '益州', prefecture: '巴東郡', faction: 'liuzhang', lon: 109.47, lat: 31.02, description: '建安六年（201）固陵郡改名巴東郡，郡治魚復；此處為後世治所白帝城一帶的近似點位。' },
+  { id: 'wudu', name: '下辨', en: 'XIABIAN', province: '益州', prefecture: '武都郡', faction: 'local', lon: 105.78, lat: 33.79, description: '武都郡治下辨，約在今成縣一帶；點位為近似定位，漢末具體控制情況待考。' },
+  { id: 'tianshui', name: '冀縣', en: 'JIXIAN', province: '涼州', prefecture: '漢陽郡', faction: 'local', lon: 105.38878, lat: 34.73837, description: '漢陽郡治冀縣，隸屬涼州；此時具體控制方不作確定判定。' },
+  { id: 'anding', name: '臨涇', en: 'LINJING', province: '涼州', prefecture: '安定郡', faction: 'local', lon: 107.37, lat: 35.31, description: '安定郡治臨涇，約在今涇川水泉寺一帶；此時仍屬涼州，控制方待考。' },
+  { id: 'wuwei', name: '武威', en: 'WUWEI', province: '雍州', prefecture: '武威郡', faction: 'local', lon: 102.64, lat: 37.93, description: '興平元年（194）另置雍州統轄河西四郡，武威郡屬之；具體控制待考。' },
+  { id: 'yunnan', name: '雲南縣', en: 'YUNNAN', province: '益州', prefecture: '永昌郡', faction: 'local', lon: 100.55, lat: 25.48, description: '東漢永昌郡雲南縣，約在今雲南驛，非今大理城或滇池；點位為近似定位，實際控制待考。' },
+  { id: 'jianning', name: '味縣', en: 'WEIXIAN', province: '益州', prefecture: '益州郡', faction: 'local', lon: 103.73, lat: 25.53, description: '東漢益州郡味縣，約在今曲靖一帶；點位為近似定位，地方勢力與實際控制待考。' },
+  { id: 'nanhai', name: '番禺', en: 'PANYU', province: '交州', prefecture: '南海郡', faction: 'local', lon: 113.25607, lat: 23.13462, description: '南海郡治番禺，嶺南海上門戶；本時點實際控制待考，不以後來吳地歸屬推定孫權控制。' },
+  { id: 'jiaozhi', name: '龍編', en: 'LONGBIAN', province: '交州', prefecture: '交趾郡', faction: 'shixie', lon: 105.95475, lat: 21.09321, description: '交趾郡治龍編，士燮所據交州地方勢力；士燮至建安十五年才歸附孫權。點位參照後世龍編治所，漢末精確位置待考。' }
 ]
 
 const CITY_OFFSETS: [number, number][] = [[0, 0], ...DIRECTIONS]

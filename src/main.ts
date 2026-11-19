@@ -15,10 +15,10 @@ app.innerHTML = `
       </div>
       <nav class="topnav" aria-label="地图图层">
         <button class="active" type="button" data-nav-filter="overview">天下形势</button>
-        <button type="button" data-nav-filter="factions">州郡分区</button>
+        <button type="button" data-nav-filter="factions">州郡線（示意）</button>
         <button type="button" data-nav-filter="cities">列郡城邑</button>
       </nav>
-      <div class="era-label">建安十三年 · 劉表病逝前</div>
+      <div class="era-label">建安十三年（208）· 劉表病逝前</div>
       <button id="mobile-details" class="mobile-details" type="button" aria-label="打开地形和行军详情" aria-expanded="false">地形與行軍</button>
     </header>
     <div class="workspace">
@@ -29,16 +29,18 @@ app.innerHTML = `
         </div>
         <label class="search-wrap"><i data-lucide="search"></i><input id="city-search" type="search" placeholder="尋找城池、州郡…" autocomplete="off" /></label>
         <select id="faction-filter" class="faction-select" aria-label="按势力筛选">
-          <option value="all">全部勢力</option><option value="cao">曹操</option><option value="liubiao">劉表</option><option value="sun">孫權</option><option value="liuzhang">劉璋</option><option value="local">地方勢力</option>
+          <option value="all">全部勢力</option><option value="cao">曹操</option><option value="liubiao">劉表</option><option value="sun">孫權</option><option value="liuzhang">劉璋</option><option value="zhanglu">張魯</option><option value="shixie">士燮</option><option value="local">地方/待考</option>
         </select>
         <div class="city-list-head">CITY INDEX · <span id="city-visible-count">0</span></div>
         <div id="city-list" class="city-list"></div>
-        <div class="rail-bottom"><small>建安十三年 · 勢力圖例</small><div class="faction-legend">
+        <div class="rail-bottom"><strong>城邑控制示意，非疆界</strong><br /><small>建安十三年（208）· 劉表病逝前</small><div class="faction-legend">
           <span class="legend-entry"><i class="faction-dot" style="--faction:#aa826c"></i>曹操</span>
           <span class="legend-entry"><i class="faction-dot" style="--faction:#91a58a"></i>劉表</span>
           <span class="legend-entry"><i class="faction-dot" style="--faction:#668b91"></i>孫權</span>
           <span class="legend-entry"><i class="faction-dot" style="--faction:#b99a6b"></i>劉璋</span>
-          <span class="legend-entry"><i class="faction-dot" style="--faction:#a5a18e"></i>地方</span>
+          <span class="legend-entry"><i class="faction-dot" style="--faction:#9c8ca8"></i>張魯</span>
+          <span class="legend-entry"><i class="faction-dot" style="--faction:#9a777e"></i>士燮</span>
+          <span class="legend-entry"><i class="faction-dot" style="--faction:#a5a18e"></i>地方/待考</span>
         </div></div>
       </aside>
 
@@ -79,11 +81,12 @@ app.innerHTML = `
           <div class="movement-costs"><div><span>平原步卒</span><strong>1 移动力</strong></div><div><span>丘陵步卒</span><strong>2 移动力</strong></div><div><span>河流步卒</span><strong class="danger">須乘舟</strong></div></div>
         </section>
         <section class="detail-section">
-          <div class="detail-head"><h3>圖層與疆域</h3><span class="detail-index">LAYERS</span></div>
+          <div class="detail-head"><h3>圖層與示意</h3><span class="detail-index">LAYERS</span></div>
           <div class="layer-list">
             <label class="layer-row"><input data-layer="showRelief" type="checkbox" checked />山川地勢</label>
             <label class="layer-row"><input data-layer="showLabels" type="checkbox" checked />城池標記</label>
-            <label class="layer-row"><input data-layer="showBorders" type="checkbox" />州郡分區（示意）</label>
+            <label class="layer-row"><input data-layer="showBorders" type="checkbox" />州郡線（示意）</label>
+            <small>依城邑近似生成，非歷史疆域。</small>
             <label class="layer-row"><input data-layer="showSeaLabels" type="checkbox" checked />海域名稱</label>
           </div>
           <div class="detail-head" style="margin-top:16px;margin-bottom:8px"><h3>地形篩選</h3></div>
@@ -686,7 +689,7 @@ function updateSelection(): void {
     <h2 class="inspector-name">${city.name}<span>${city.en}</span></h2>
     <p class="inspector-copy">${city.description}</p>
     <div class="inspector-facts">
-      <div><span>歸屬勢力</span><strong><i class="faction-dot" style="--faction:${faction!.color}"></i>${faction!.name}</strong></div>
+      <div><span>控制方示意</span><strong><i class="faction-dot" style="--faction:${faction!.color}"></i>${faction!.name}</strong></div>
       <div><span>城域規模</span><strong>七格 · ${terrain.name}</strong></div>
       <div><span>地理坐标</span><strong>${city.lat.toFixed(1)}° N　${city.lon.toFixed(1)}° E</strong></div>
     </div>` : `
