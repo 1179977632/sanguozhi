@@ -18,7 +18,7 @@ app.innerHTML = `
         <button type="button" data-nav-filter="factions">州郡分区</button>
         <button type="button" data-nav-filter="cities">列郡城邑</button>
       </nav>
-      <div class="era-label">漢末三國 · 地理與勢力示意</div>
+      <div class="era-label">建安十三年 · 劉表病逝前</div>
       <button id="mobile-details" class="mobile-details" type="button" aria-label="打开地形和行军详情" aria-expanded="false">地形與行軍</button>
     </header>
     <div class="workspace">
@@ -29,20 +29,21 @@ app.innerHTML = `
         </div>
         <label class="search-wrap"><i data-lucide="search"></i><input id="city-search" type="search" placeholder="尋找城池、州郡…" autocomplete="off" /></label>
         <select id="faction-filter" class="faction-select" aria-label="按势力筛选">
-          <option value="all">全部势力</option><option value="wei">魏 · 北方</option><option value="shu">蜀 · 西川</option><option value="wu">吳 · 江東</option><option value="neutral">群雄 · 未定</option>
+          <option value="all">全部勢力</option><option value="cao">曹操</option><option value="liubiao">劉表</option><option value="sun">孫權</option><option value="liuzhang">劉璋</option><option value="local">地方勢力</option>
         </select>
         <div class="city-list-head">CITY INDEX · <span id="city-visible-count">0</span></div>
         <div id="city-list" class="city-list"></div>
-        <div class="rail-bottom"><small>漢末三分 · 勢力圖例</small><div class="faction-legend">
-          <span class="legend-entry"><i class="faction-dot" style="--faction:#9c7660"></i>魏</span>
-          <span class="legend-entry"><i class="faction-dot" style="--faction:#74937d"></i>蜀</span>
-          <span class="legend-entry"><i class="faction-dot" style="--faction:#6d8d96"></i>吳</span>
-          <span class="legend-entry"><i class="faction-dot" style="--faction:#aaa596"></i>群雄</span>
+        <div class="rail-bottom"><small>建安十三年 · 勢力圖例</small><div class="faction-legend">
+          <span class="legend-entry"><i class="faction-dot" style="--faction:#aa826c"></i>曹操</span>
+          <span class="legend-entry"><i class="faction-dot" style="--faction:#91a58a"></i>劉表</span>
+          <span class="legend-entry"><i class="faction-dot" style="--faction:#668b91"></i>孫權</span>
+          <span class="legend-entry"><i class="faction-dot" style="--faction:#b99a6b"></i>劉璋</span>
+          <span class="legend-entry"><i class="faction-dot" style="--faction:#a5a18e"></i>地方</span>
         </div></div>
       </aside>
 
-      <section class="map-shell" aria-label="三国战略地图">
-        <div class="map-ribbon"><div class="map-edition"><strong>漢末山川圖</strong><em>建安五年 · 成都近覽</em></div><div class="map-coordinates"><span id="coordinates">北緯 30°　東經 104°</span><span class="map-coordinate-seal">天地四方 · 州郡可行</span></div></div>
+      <section class="map-shell" aria-label="建安十三年战略地图">
+        <div class="map-ribbon"><div class="map-edition"><strong>漢末山川圖</strong><em>建安十三年 · 成都近覽</em></div><div class="map-coordinates"><span id="coordinates">北緯 30°　東經 104°</span><span class="map-coordinate-seal">天地四方 · 州郡可行</span></div></div>
         <div class="map-status"><i class="map-status-dot"></i><span id="status-line">拖動以遊覽地圖 · 滾輪縮放</span></div>
         <div class="canvas-wrap"><canvas id="map" aria-label="尖顶六边形三国地形地图，可拖动浏览并点击地块" tabindex="0"></canvas></div>
         <div class="map-compass">北<span>↑</span></div>
@@ -207,7 +208,7 @@ function focusCity(city: City, zoom: number): void {
   state.panX = bounds.width / 2 - center.x * state.zoom
   state.panY = bounds.height / 2 - center.y * state.zoom
   state.positionReady = true
-  document.querySelector<HTMLElement>('.map-edition em')!.textContent = `建安五年 · ${city.name}近覽`
+  document.querySelector<HTMLElement>('.map-edition em')!.textContent = `建安十三年 · ${city.name}近覽`
   scheduleMap()
 }
 
@@ -223,7 +224,7 @@ function fitMap(): void {
   state.panX = bounds.width / 2 - (left + right) / 2 * state.zoom
   state.panY = 75 + (bounds.height - 155) / 2 - (top + bottom) / 2 * state.zoom
   state.positionReady = true
-  document.querySelector<HTMLElement>('.map-edition em')!.textContent = '建安五年 · 全域總覽'
+  document.querySelector<HTMLElement>('.map-edition em')!.textContent = '建安十三年 · 全域總覽'
   scheduleMap()
 }
 
