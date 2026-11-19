@@ -487,8 +487,8 @@ function findCityCenter(x: number, y: number, tiles: Map<string, HexTile>, reser
       const tile = tiles.get(hexKey(q + dq, r + dr))
       if (!tile || !['plain', 'forest', 'hill'].includes(tile.terrain)) continue
       const footprint = CITY_OFFSETS.map(([oq, or]) => tiles.get(hexKey(tile.q + oq, tile.r + or)))
-      // 城域七格必须是可通行地块，避免孤峰落进城内。
-      if (footprint.some((entry) => !entry || entry.terrain === 'coast' || entry.terrain === 'lake' || entry.terrain === 'mountain' || reserved.has(hexKey(entry.q, entry.r)))) continue
+      // 城域七格只允许平原、林地、丘陵与河流，避免沼泽、湖海和孤峰落进城内。
+      if (footprint.some((entry) => !entry || entry.terrain === 'coast' || entry.terrain === 'lake' || entry.terrain === 'mountain' || entry.terrain === 'marsh' || reserved.has(hexKey(entry.q, entry.r)))) continue
       const distance = Math.hypot(tile.x - x, tile.y - y)
       if (!best || distance < best.distance) best = { tile, distance }
     }
