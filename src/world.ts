@@ -425,9 +425,9 @@ function getLandTerrain(lon: number, lat: number, seed: number): { terrain: Terr
     const gap = alongNoise(rangeSeed + 613, range.along, 6)
     const block = sampleNoise(rangeSeed + 4177, lon, lat, 13)
     const foot = sampleNoise(rangeSeed + 9001, lon, lat, 2.6)
-    const span = range.range.width * (0.5 + massif * 0.95 + block * 0.5)
+    const span = range.range.width * (0.68 + massif * 1.05 + block * 0.55)
     if (range.distance < span * (0.8 + foot * 0.42)) {
-      const core = span * (gap < 0.32 ? 0.12 : 0.38 + block * 0.42)
+      const core = span * (gap < 0.26 ? 0.12 : 0.46 + block * 0.44)
       // 山体直接与平地相接，起伏明显的山麓交给全局散丘，不再沿山围一圈。
       if (range.distance < core) return { terrain: 'mountain', landform: range.range.name, relief: 0.6 + massif * 0.24 + block * 0.14 }
     }
@@ -435,14 +435,17 @@ function getLandTerrain(lon: number, lat: number, seed: number): { terrain: Terr
   const marsh = MARSH_REGIONS.find((region) => pointInPolygon(lon, lat, region))
   if (marsh && noise > 0.27) return { terrain: 'marsh', landform: '江湖泽地', relief: 0.04 }
   const forest = FOREST_REGIONS.find((region) => pointInPolygon(lon, lat, region))
-  if (forest && noise > 0.23) return { terrain: 'forest', landform: '山地林区', relief: 0.16 + noise * 0.12 }
+  if (forest && noise > 0.1 && sampleNoise(seed + 991, lon, lat, 3.2) > 0.26) return { terrain: 'forest', landform: '山地林区', relief: 0.16 + noise * 0.12 }
   const lowland = NAMED_LOWLANDS.find((region) => pointInPolygon(lon, lat, region.points))
   if (lowland) return { terrain: 'plain', landform: lowland.name, relief: 0.06 + noise * 0.06 }
-  // 远离山脉的平原上另行散布丘陵团块与孤立山，不依附山系。
-  const scatter = sampleNoise(seed + 6151, lon, lat, 18)
+  // 远离山脉的平原上另行散布丘陵、树林与孤立山，不依附山系。
+  const scatter = sampleNoise(seed + 6151, lon, lat, 20)
   const scatterEdge = sampleNoise(seed + 8233, lon, lat, 4)
+  const grove = sampleNoise(seed + 2711, lon, lat, 16)
+  const groveEdge = sampleNoise(seed + 5449, lon, lat, 4)
   if (scatter > 0.88 && scatterEdge > 0.46) return { terrain: 'mountain', landform: '孤峰', relief: 0.45 + scatter * 0.2 }
-  if (scatter > 0.73 && scatterEdge > 0.34) return { terrain: 'hill', landform: '丘陵地', relief: 0.2 + scatter * 0.22 }
+  if (grove > 0.77 && groveEdge > 0.4) return { terrain: 'forest', landform: '林地', relief: 0.14 + grove * 0.12 }
+  if (scatter > 0.68 && scatterEdge > 0.32) return { terrain: 'hill', landform: '丘陵地', relief: 0.2 + scatter * 0.22 }
   return { terrain: 'plain', landform: '平原', relief: 0.05 + noise * 0.08 }
 }
 

@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { createIcons, ArrowDownUp, ArrowLeft, ArrowRight, ChevronsDown, Compass, Expand, LocateFixed, Minus, Mountain, MousePointer2, Plus, RotateCcw, Search, Ship, Sparkles, X, ZoomIn, ZoomOut } from 'lucide'
 import type { City, FactionId, HexTile, MovementOptions } from './world'
-import { createWorld, DIRECTIONS, FACTIONS, HEX_SIZE, LAKES, MOUNTAIN_RANGES, RIVERS, TERRAIN, findPath, geoToPixel, hexKey, hexToPixel, movementCost, pixelToHex } from './world'
+import { createWorld, DIRECTIONS, FACTIONS, HEX_SIZE, LAKES, MOUNTAIN_RANGES, TERRAIN, findPath, geoToPixel, hexKey, hexToPixel, movementCost, pixelToHex } from './world'
 import './style.css'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -50,7 +50,7 @@ app.innerHTML = `
           <button id="locate-city" class="tool-button" type="button" aria-label="定位所选城池" title="定位所选城池"><i data-lucide="locate-fixed"></i></button>
           <button id="zoom-in" class="tool-button" type="button" aria-label="放大地图" title="放大"><i data-lucide="plus"></i></button>
           <button id="zoom-out" class="tool-button" type="button" aria-label="缩小地图" title="缩小"><i data-lucide="minus"></i></button>
-          <span class="zoom-readout" id="zoom-readout">400%</span><span class="toolbar-divider"></span>
+          <span class="zoom-readout" id="zoom-readout">480%</span><span class="toolbar-divider"></span>
           <button id="reset-map" class="tool-button" type="button" aria-label="重置地图视角" title="重置视角"><i data-lucide="expand"></i></button>
         </div>
         <div class="map-scale" id="map-scale">約 130 里</div>
@@ -81,7 +81,6 @@ app.innerHTML = `
           <div class="detail-head"><h3>圖層與疆域</h3><span class="detail-index">LAYERS</span></div>
           <div class="layer-list">
             <label class="layer-row"><input data-layer="showRelief" type="checkbox" checked />山川地勢</label>
-            <label class="layer-row"><input data-layer="showRivers" type="checkbox" checked />水系河流</label>
             <label class="layer-row"><input data-layer="showLabels" type="checkbox" checked />城池標記</label>
             <label class="layer-row"><input data-layer="showBorders" type="checkbox" />州郡分區（示意）</label>
             <label class="layer-row"><input data-layer="showSeaLabels" type="checkbox" checked />海域名稱</label>
@@ -133,7 +132,6 @@ const state = {
   routeStart: null as HexTile | null,
   pathMode: false,
   terrainFilter: 'all',
-  showRivers: true,
   showLabels: true,
   showBorders: false,
   showRelief: true,
@@ -191,7 +189,7 @@ function resizeMap(): void {
   }
   mapCanvas.style.width = `${width}px`
   mapCanvas.style.height = `${height}px`
-  if (!state.positionReady) focusCity(initialCity, 4)
+  if (!state.positionReady) focusCity(initialCity, 4.8)
   else {
     state.panX += (width - viewportWidth) / 2
     state.panY += (height - viewportHeight) / 2
@@ -205,7 +203,7 @@ function resizeMap(): void {
 function focusCity(city: City, zoom: number): void {
   const bounds = mapCanvas.parentElement!.getBoundingClientRect()
   const center = hexToPixel(city.q, city.r)
-  state.zoom = Phaser.Math.Clamp(zoom, 0.38, 5.5)
+  state.zoom = Phaser.Math.Clamp(zoom, 0.38, 7)
   state.panX = bounds.width / 2 - center.x * state.zoom
   state.panY = bounds.height / 2 - center.y * state.zoom
   state.positionReady = true
@@ -260,7 +258,6 @@ function drawMap(): void {
   for (const tile of visibleTiles) drawTile(context, tile)
   drawRelief(context)
   if (state.showBorders) drawProvinceLines(context, visibleTiles)
-  if (state.showRivers) drawRivers(context)
   if (state.showSeaLabels) drawSeaLabels(context)
   drawRoute(context)
   drawCityTerritories(context, visibleTiles)
@@ -471,32 +468,6 @@ function drawProvinceLines(context: CanvasRenderingContext2D, tiles: HexTile[]):
   context.restore()
 }
 
-/** 将世界生成器中的地理水系绘制为地图上的河流和标注。 */
-function drawRivers(context: CanvasRenderingContext2D): void {
-  context.save()
-  context.lineCap = 'round'
-  context.lineJoin = 'round'
-  for (const river of RIVERS) {
-    const points = river.points.map(({ lon, lat }) => geoToPixel(lon, lat))
-    context.beginPath()
-    points.forEach(({ x, y }, index) => index ? context.lineTo(x, y) : context.moveTo(x, y))
-    context.strokeStyle = '#c5ddd3'
-    context.lineWidth = Math.max(2, river.width * (22 * HEX_SIZE / 9) + 1.5)
-    context.stroke()
-    context.strokeStyle = river.width >= 0.14 ? '#477d82' : '#56888a'
-    context.lineWidth = Math.max(0.9, river.width * 22 * HEX_SIZE / 9)
-    context.globalAlpha = 0.9
-    context.stroke()
-    const labelPoint = points[Math.floor(points.length / 2)]
-    context.globalAlpha = 1
-    context.fillStyle = '#416c74'
-    context.font = '10px "Noto Serif SC", serif'
-    context.textAlign = 'center'
-    context.fillText(river.name, labelPoint.x, labelPoint.y - 7)
-  }
-  context.restore()
-}
-
 /** 标注常用海域并用题刻衬线字保持古地图阅读气质。 */
 function drawSeaLabels(context: CanvasRenderingContext2D): void {
   context.save()
@@ -692,7 +663,7 @@ function readMovementOptions(): MovementOptions {
 function selectCity(city: City): void {
   state.city = city
   state.selectedTile = world.tiles.get(hexKey(city.q, city.r)) ?? null
-  focusCity(city, Math.max(state.zoom, 4))
+  focusCity(city, Math.max(state.zoom, 4.8))
   updateSelection()
   renderCityList()
   if (window.matchMedia('(max-width: 820px)').matches) {
@@ -849,7 +820,7 @@ function initializeControls(): void {
     scheduleMap()
   })
   document.querySelectorAll<HTMLInputElement>('[data-layer]').forEach((input) => input.addEventListener('change', () => {
-    const key = input.dataset.layer as 'showRivers' | 'showLabels' | 'showBorders' | 'showRelief' | 'showSeaLabels'
+    const key = input.dataset.layer as 'showLabels' | 'showBorders' | 'showRelief' | 'showSeaLabels'
     state[key] = input.checked
     scheduleMap()
   }))
@@ -860,7 +831,7 @@ function zoomAt(clientX: number, clientY: number, factor: number): void {
   const rect = mapCanvas.getBoundingClientRect()
   const x = clientX - rect.left
   const y = clientY - rect.top
-  const nextZoom = Phaser.Math.Clamp(state.zoom * factor, 0.38, 5.5)
+  const nextZoom = Phaser.Math.Clamp(state.zoom * factor, 0.38, 7)
   const scale = nextZoom / state.zoom
   state.panX = x - (x - state.panX) * scale
   state.panY = y - (y - state.panY) * scale
