@@ -183,8 +183,36 @@ export const RIVERS: { name: string; points: GeoPoint[]; width: number }[] = [
   { name: '嘉陵江', width: 0.09, points: [{ lon: 105.5, lat: 33.2 }, { lon: 106.1, lat: 32.2 }, { lon: 106.0, lat: 31.1 }, { lon: 106.55, lat: 29.56 }] },
   { name: '涪江', width: 0.06, points: [{ lon: 103.9, lat: 32.0 }, { lon: 104.7, lat: 31.5 }, { lon: 105.3, lat: 30.9 }, { lon: 106.0, lat: 30.1 }] },
   { name: '沅水', width: 0.07, points: [{ lon: 109.8, lat: 27.4 }, { lon: 110.0, lat: 28.1 }, { lon: 110.4, lat: 28.7 }, { lon: 111.1, lat: 29.1 }, { lon: 112.19, lat: 30.35 }] },
-  { name: '漢水支流', width: 0.06, points: [{ lon: 108.4, lat: 31.7 }, { lon: 109.4, lat: 32.0 }, { lon: 110.4, lat: 32.0 }, { lon: 111.2, lat: 31.9 }, { lon: 112.14, lat: 32.04 }] },
 ]
+
+/** 将河道折线加密并做横向摆动，形成连续河曲，供地形判定与河格栅格化共用。 */
+function meanderRiver(points: GeoPoint[], riverSeed: number, amplitude: number): GeoPoint[] {
+  const meandered: GeoPoint[] = []
+  let walked = 0
+  for (let index = 0; index < points.length - 1; index++) {
+    const first = points[index]!
+    const second = points[index + 1]!
+    const steps = Math.max(3, Math.round(Math.hypot(second.lon - first.lon, second.lat - first.lat) / 0.1))
+    const longitudeScale = Math.cos(((first.lat + second.lat) / 2) * Math.PI / 180)
+    const dx = (second.lon - first.lon) * longitudeScale
+    const dy = second.lat - first.lat
+    const length = Math.hypot(dx, dy) || 1
+    for (let step = 0; step < steps; step++) {
+      const t = step / steps
+      const lon = first.lon + (second.lon - first.lon) * t
+      const lat = first.lat + (second.lat - first.lat) * t
+      // 按弧长采样一维噪声：大弯约十余格一折，小弯数格一抖，整条河弯曲频率一致。
+      const distance = (walked + length * t) * GEO_SCALE_X
+      const sway = ((alongNoise(riverSeed, distance / 26, 1) - 0.5) * 1.5 + (alongNoise(riverSeed + 19, distance / 9, 1) - 0.5) * 0.7) * amplitude
+      meandered.push({ lon: lon - (dy / length) * sway / longitudeScale, lat: lat + (dx / length) * sway })
+    }
+    walked += length
+  }
+  meandered.push(points[points.length - 1]!)
+  return meandered
+}
+
+const RIVER_PATHS = new Map(RIVERS.map((river) => [river, meanderRiver(river.points, nameSeed(river.name) + 911, 0.24)] as const))
 
 // 湖岸为策略地图的示意折线，描述水系位置与河网形态，不等同汉末精确岸线。
 export const LAKES: { name: string; points: GeoPoint[]; islands?: GeoPoint[][]; label: GeoPoint }[] = [
@@ -421,13 +449,13 @@ function getLandTerrain(lon: number, lat: number, seed: number): { terrain: Terr
   if (range) {
     const rangeSeed = seed + nameSeed(range.range.name)
     // 沿脊峰团决定宽窄，断口处山核收窄成垭口；块状与碎边噪声打碎平滑轮廓。
-    const massif = alongNoise(rangeSeed, range.along, 11)
-    const gap = alongNoise(rangeSeed + 613, range.along, 6)
-    const block = sampleNoise(rangeSeed + 4177, lon, lat, 13)
-    const foot = sampleNoise(rangeSeed + 9001, lon, lat, 2.6)
-    const span = range.range.width * (0.68 + massif * 1.05 + block * 0.55)
+    const massif = alongNoise(rangeSeed, range.along, 18)
+    const gap = alongNoise(rangeSeed + 613, range.along, 12)
+    const block = sampleNoise(rangeSeed + 4177, lon, lat, 6)
+    const foot = sampleNoise(rangeSeed + 9001, lon, lat, 2.2)
+    const span = range.range.width * (0.9 + massif * 1.0 + block * 0.5)
     if (range.distance < span * (0.8 + foot * 0.42)) {
-      const core = span * (gap < 0.26 ? 0.12 : 0.46 + block * 0.44)
+      const core = span * (gap < 0.38 ? 0.1 : 0.32 + block * 0.5)
       // 山体直接与平地相接，起伏明显的山麓交给全局散丘，不再沿山围一圈。
       if (range.distance < core) return { terrain: 'mountain', landform: range.range.name, relief: 0.6 + massif * 0.24 + block * 0.14 }
     }
@@ -439,13 +467,13 @@ function getLandTerrain(lon: number, lat: number, seed: number): { terrain: Terr
   const lowland = NAMED_LOWLANDS.find((region) => pointInPolygon(lon, lat, region.points))
   if (lowland) return { terrain: 'plain', landform: lowland.name, relief: 0.06 + noise * 0.06 }
   // 远离山脉的平原上另行散布丘陵、树林与孤立山，不依附山系。
-  const scatter = sampleNoise(seed + 6151, lon, lat, 20)
-  const scatterEdge = sampleNoise(seed + 8233, lon, lat, 4)
-  const grove = sampleNoise(seed + 2711, lon, lat, 16)
-  const groveEdge = sampleNoise(seed + 5449, lon, lat, 4)
-  if (scatter > 0.88 && scatterEdge > 0.46) return { terrain: 'mountain', landform: '孤峰', relief: 0.45 + scatter * 0.2 }
-  if (grove > 0.77 && groveEdge > 0.4) return { terrain: 'forest', landform: '林地', relief: 0.14 + grove * 0.12 }
-  if (scatter > 0.68 && scatterEdge > 0.32) return { terrain: 'hill', landform: '丘陵地', relief: 0.2 + scatter * 0.22 }
+  const scatter = sampleNoise(seed + 6151, lon, lat, 12)
+  const scatterEdge = sampleNoise(seed + 8233, lon, lat, 3)
+  const grove = sampleNoise(seed + 2711, lon, lat, 10)
+  const groveEdge = sampleNoise(seed + 5449, lon, lat, 3)
+  if (scatter > 0.85 && scatterEdge > 0.42) return { terrain: 'mountain', landform: '孤峰', relief: 0.45 + scatter * 0.2 }
+  if (grove > 0.75 && groveEdge > 0.38) return { terrain: 'forest', landform: '林地', relief: 0.14 + grove * 0.12 }
+  if (scatter > 0.66 && scatterEdge > 0.3) return { terrain: 'hill', landform: '丘陵地', relief: 0.2 + scatter * 0.22 }
   return { terrain: 'plain', landform: '平原', relief: 0.05 + noise * 0.08 }
 }
 
@@ -471,9 +499,10 @@ function findCityCenter(x: number, y: number, tiles: Map<string, HexTile>, reser
 /** 以小于六边形半径的像素步长栅格化河道，保留湖泊与近海原貌。 */
 function rasterizeRivers(tiles: Map<string, HexTile>): void {
   for (const river of RIVERS) {
-    for (let index = 1; index < river.points.length; index++) {
-      const first = river.points[index - 1]!
-      const second = river.points[index]!
+    const path = RIVER_PATHS.get(river)!
+    for (let index = 1; index < path.length; index++) {
+      const first = path[index - 1]!
+      const second = path[index]!
       const start = geoToPixel(first.lon, first.lat)
       const end = geoToPixel(second.lon, second.lat)
       const steps = Math.ceil(Math.hypot(end.x - start.x, end.y - start.y) / (HEX_SIZE / 4))
@@ -496,9 +525,10 @@ function closestRiverDistance(lon: number, lat: number): { distance: number; wid
   const longitudeScale = Math.cos(lat * Math.PI / 180)
   const pointX = lon * longitudeScale
   for (const river of RIVERS) {
-    for (let index = 1; index < river.points.length; index++) {
-      const first = river.points[index - 1]!
-      const second = river.points[index]!
+    const path = RIVER_PATHS.get(river)!
+    for (let index = 1; index < path.length; index++) {
+      const first = path[index - 1]!
+      const second = path[index]!
       const minX = Math.min(first.lon, second.lon) * longitudeScale - river.width * 2 * longitudeScale
       const maxX = Math.max(first.lon, second.lon) * longitudeScale + river.width * 2 * longitudeScale
       if (pointX < minX || pointX > maxX || lat < Math.min(first.lat, second.lat) - river.width * 2 || lat > Math.max(first.lat, second.lat) + river.width * 2) continue
