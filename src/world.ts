@@ -113,12 +113,41 @@ export const MOUNTAIN_RANGES: { name: string; points: GeoPoint[]; width: number;
   { name: '武夷山', width: 0.3, label: { lon: 117.7, lat: 27.7 }, points: [{ lon: 116.8, lat: 25.5 }, { lon: 117.25, lat: 26.3 }, { lon: 117.8, lat: 27.2 }, { lon: 118.3, lat: 28.2 }, { lon: 118.8, lat: 29.0 }] },
 ]
 
-const MOUNTAIN_RANGE_BOUNDS = new Map(MOUNTAIN_RANGES.map((range) => [range, {
-  minLon: Math.min(...range.points.map((point) => point.lon)) - range.width * 2,
-  maxLon: Math.max(...range.points.map((point) => point.lon)) + range.width * 2,
-  minLat: Math.min(...range.points.map((point) => point.lat)) - range.width * 2,
-  maxLat: Math.max(...range.points.map((point) => point.lat)) + range.width * 2,
-}]))
+/** 加密山脊折线并沿法线做确定性摆动，避免山脉成为笔直的线状带。 */
+function warpRidge(points: GeoPoint[], rangeSeed: number, amplitude: number): GeoPoint[] {
+  const warped: GeoPoint[] = []
+  for (let index = 0; index < points.length - 1; index++) {
+    const first = points[index]!
+    const second = points[index + 1]!
+    const steps = Math.max(3, Math.round(Math.hypot(second.lon - first.lon, second.lat - first.lat) / 0.18))
+    const longitudeScale = Math.cos(((first.lat + second.lat) / 2) * Math.PI / 180)
+    const dx = (second.lon - first.lon) * longitudeScale
+    const dy = second.lat - first.lat
+    const length = Math.hypot(dx, dy) || 1
+    for (let step = 0; step < steps; step++) {
+      const t = step / steps
+      const lon = first.lon + (second.lon - first.lon) * t
+      const lat = first.lat + (second.lat - first.lat) * t
+      // 两个空间尺度的摆动叠加，形成自然弯曲而非均匀蛇形。
+      const sway = ((sampleNoise(rangeSeed, lon, lat, 22) - 0.5) * 1.1 + (sampleNoise(rangeSeed + 77, lon, lat, 8) - 0.5) * 0.5) * amplitude
+      warped.push({ lon: lon - (dy / length) * sway / longitudeScale, lat: lat + (dx / length) * sway })
+    }
+  }
+  warped.push(points[points.length - 1]!)
+  return warped
+}
+
+const RIDGE_PATHS = new Map(MOUNTAIN_RANGES.map((range) => [range, warpRidge(range.points, nameSeed(range.name) + 479, 0.6)] as const))
+
+const MOUNTAIN_RANGE_BOUNDS = new Map(MOUNTAIN_RANGES.map((range) => {
+  const points = RIDGE_PATHS.get(range)!
+  return [range, {
+    minLon: Math.min(...points.map((point) => point.lon)) - range.width * 3,
+    maxLon: Math.max(...points.map((point) => point.lon)) + range.width * 3,
+    minLat: Math.min(...points.map((point) => point.lat)) - range.width * 3,
+    maxLat: Math.max(...points.map((point) => point.lat)) + range.width * 3,
+  }] as const
+}))
 
 const MOUNTAIN_PASSES: { name: string; lon: number; lat: number; radius: number }[] = [
   { name: '褒斜道', lon: 107.25, lat: 33.65, radius: 0.22 },
@@ -391,14 +420,16 @@ function getLandTerrain(lon: number, lat: number, seed: number): { terrain: Terr
   const noise = smoothNoise(seed, lon, lat)
   if (range) {
     const rangeSeed = seed + nameSeed(range.range.name)
-    // 大尺度起伏让山体时宽时窄、成团成峰；小尺度噪声把山麓边缘打碎。
-    const massif = sampleNoise(rangeSeed, lon, lat, 26)
-    const foot = sampleNoise(rangeSeed + 4177, lon, lat, 5)
-    const reach = range.range.width * (1.3 + massif * 1.0 + foot * 0.32)
-    if (range.distance < reach) {
-      const core = range.range.width * (0.5 + massif * 0.8 + foot * 0.18)
-      if (range.distance < core) return { terrain: 'mountain', landform: range.range.name, relief: 0.62 + massif * 0.3 + foot * 0.08 }
-      return { terrain: 'hill', landform: range.range.name, relief: 0.28 + massif * 0.34 + foot * 0.12 }
+    // 沿脊峰团决定宽窄，断口处山核收窄成垭口；块状与碎边噪声打碎平滑轮廓。
+    const massif = alongNoise(rangeSeed, range.along, 11)
+    const gap = alongNoise(rangeSeed + 613, range.along, 6)
+    const block = sampleNoise(rangeSeed + 4177, lon, lat, 13)
+    const foot = sampleNoise(rangeSeed + 9001, lon, lat, 2.6)
+    const span = range.range.width * (0.5 + massif * 0.95 + block * 0.5)
+    if (range.distance < span * (0.8 + foot * 0.42)) {
+      const core = span * (gap < 0.32 ? 0.12 : 0.38 + block * 0.42)
+      // 山体直接与平地相接，起伏明显的山麓交给全局散丘，不再沿山围一圈。
+      if (range.distance < core) return { terrain: 'mountain', landform: range.range.name, relief: 0.6 + massif * 0.24 + block * 0.14 }
     }
   }
   const marsh = MARSH_REGIONS.find((region) => pointInPolygon(lon, lat, region))
@@ -406,8 +437,12 @@ function getLandTerrain(lon: number, lat: number, seed: number): { terrain: Terr
   const forest = FOREST_REGIONS.find((region) => pointInPolygon(lon, lat, region))
   if (forest && noise > 0.23) return { terrain: 'forest', landform: '山地林区', relief: 0.16 + noise * 0.12 }
   const lowland = NAMED_LOWLANDS.find((region) => pointInPolygon(lon, lat, region.points))
-  if (lowland) return noise > 0.91 ? { terrain: 'hill', landform: lowland.name, relief: 0.18 } : { terrain: 'plain', landform: lowland.name, relief: 0.06 + noise * 0.06 }
-  if (noise > 0.93) return { terrain: 'hill', landform: '丘陵地', relief: 0.2 + noise * 0.16 }
+  if (lowland) return { terrain: 'plain', landform: lowland.name, relief: 0.06 + noise * 0.06 }
+  // 远离山脉的平原上另行散布丘陵团块与孤立山，不依附山系。
+  const scatter = sampleNoise(seed + 6151, lon, lat, 18)
+  const scatterEdge = sampleNoise(seed + 8233, lon, lat, 4)
+  if (scatter > 0.88 && scatterEdge > 0.46) return { terrain: 'mountain', landform: '孤峰', relief: 0.45 + scatter * 0.2 }
+  if (scatter > 0.73 && scatterEdge > 0.34) return { terrain: 'hill', landform: '丘陵地', relief: 0.2 + scatter * 0.22 }
   return { terrain: 'plain', landform: '平原', relief: 0.05 + noise * 0.08 }
 }
 
@@ -421,7 +456,8 @@ function findCityCenter(x: number, y: number, tiles: Map<string, HexTile>, reser
       const tile = tiles.get(hexKey(q + dq, r + dr))
       if (!tile || !['plain', 'forest', 'hill'].includes(tile.terrain)) continue
       const footprint = CITY_OFFSETS.map(([oq, or]) => tiles.get(hexKey(tile.q + oq, tile.r + or)))
-      if (footprint.some((entry) => !entry || entry.terrain === 'coast' || entry.terrain === 'lake' || reserved.has(hexKey(entry.q, entry.r)))) continue
+      // 城域七格必须是可通行地块，避免孤峰落进城内。
+      if (footprint.some((entry) => !entry || entry.terrain === 'coast' || entry.terrain === 'lake' || entry.terrain === 'mountain' || reserved.has(hexKey(entry.q, entry.r)))) continue
       const distance = Math.hypot(tile.x - x, tile.y - y)
       if (!best || distance < best.distance) best = { tile, distance }
     }
@@ -470,18 +506,28 @@ function closestRiverDistance(lon: number, lat: number): { distance: number; wid
   return closest
 }
 
-/** 返回最近的具名山脊及其校正距離，先用地理包圍盒縮小線段計算。 */
-function closestMountainRange(lon: number, lat: number): { range: typeof MOUNTAIN_RANGES[number]; distance: number } | undefined {
-  let closest: { range: typeof MOUNTAIN_RANGES[number]; distance: number } | undefined
+/** 返回最近的具名山脊、校正距离与沿线位置，先用地理包围盒缩小线段计算。 */
+function closestMountainRange(lon: number, lat: number): { range: typeof MOUNTAIN_RANGES[number]; distance: number; along: number } | undefined {
+  let closest: { range: typeof MOUNTAIN_RANGES[number]; distance: number; along: number } | undefined
   const longitudeScale = Math.cos(lat * Math.PI / 180)
   for (const range of MOUNTAIN_RANGES) {
     const bounds = MOUNTAIN_RANGE_BOUNDS.get(range)!
     if (lon < bounds.minLon || lon > bounds.maxLon || lat < bounds.minLat || lat > bounds.maxLat) continue
-    for (let index = 1; index < range.points.length; index++) {
-      const first = range.points[index - 1]!
-      const second = range.points[index]!
-      const distance = segmentDistance(lon * longitudeScale, lat, first.lon * longitudeScale, first.lat, second.lon * longitudeScale, second.lat)
-      if (!closest || distance < closest.distance) closest = { range, distance }
+    const points = RIDGE_PATHS.get(range)!
+    let total = 0
+    for (let index = 1; index < points.length; index++) {
+      total += Math.hypot((points[index]!.lon - points[index - 1]!.lon) * longitudeScale, points[index]!.lat - points[index - 1]!.lat)
+    }
+    let walked = 0
+    for (let index = 1; index < points.length; index++) {
+      const first = points[index - 1]!
+      const second = points[index]!
+      const length = Math.hypot((second.lon - first.lon) * longitudeScale, second.lat - first.lat)
+      const projection = segmentProjection(lon * longitudeScale, lat, first.lon * longitudeScale, first.lat, second.lon * longitudeScale, second.lat)
+      if (!closest || projection.distance < closest.distance) {
+        closest = { range, distance: projection.distance, along: total ? (walked + projection.t * length) / total : 0 }
+      }
+      walked += length
     }
   }
   return closest
@@ -522,6 +568,23 @@ function sampleNoise(seed: number, lon: number, lat: number, scale: number): num
 /** 平滑格网插值端点，避免地形纹理逐格跳变。 */
 function smoothStep(value: number): number {
   return value * value * (3 - 2 * value)
+}
+
+/** 沿山脊长度采样一维平滑噪声，制造峰团的宽窄与断口。 */
+function alongNoise(seed: number, t: number, frequency: number): number {
+  const x = t * frequency
+  const index = Math.floor(x)
+  const blend = smoothStep(x - index)
+  return randomValue(seed, index, 0) * (1 - blend) + randomValue(seed, index + 1, 0) * blend
+}
+
+/** 返回点到线段的距离及落点在线段上的参数。 */
+function segmentProjection(px: number, py: number, ax: number, ay: number, bx: number, by: number): { distance: number; t: number } {
+  const dx = bx - ax
+  const dy = by - ay
+  const denominator = dx * dx + dy * dy || 1
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / denominator))
+  return { distance: Math.hypot(px - (ax + t * dx), py - (ay + t * dy)), t }
 }
 
 /** 計算點在線段上的最近距離並用經度餘弦校正平面距離。 */
