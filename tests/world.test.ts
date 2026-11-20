@@ -1,8 +1,57 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { auditConnectivity, createWorld, findPath, movementCost } from '../src/world.ts'
+import { auditConnectivity, createWorld, findPath, geoToPixel, movementCost, pixelToHex } from '../src/world.ts'
 
 const world = createWorld(189)
+
+/**
+ * 建安十三年（208）刘表病逝前各城的代表城邑与州、郡国级归属。
+ * 郡国名目以《后汉书·郡国志》为基础，并以 CHGIS/TGAZ 沿革条目核对；
+ * 只登记能确认在该时点已存在的建置：如梓潼郡迟至建安二十二年（217）始置，
+ * 此时梓潼县仍属广汉郡；武都郡则属凉州，而非益州。
+ */
+const ADMIN_208: Record<string, readonly [name: string, province: string, prefecture: string]> = {
+  chengdu: ['成都', '益州', '蜀郡'],
+  luoyang: ['洛陽', '司隸', '河南尹'],
+  xuchang: ['許縣', '豫州', '潁川郡'],
+  'chang-an': ['長安', '司隸', '京兆尹'],
+  ye: ['鄴', '冀州', '魏郡'],
+  beiping: ['土垠', '幽州', '右北平郡'],
+  jinyang: ['晉陽', '并州', '太原郡'],
+  pingyuan: ['平原', '青州', '平原郡'],
+  nanpi: ['南皮', '冀州', '勃海郡'],
+  xiapi: ['下邳', '徐州', '下邳郡'],
+  beihai: ['劇縣', '青州', '北海郡'],
+  puyang: ['濮陽', '兗州', '東郡'],
+  chenliu: ['陳留', '兗州', '陳留郡'],
+  runan: ['平輿', '豫州', '汝南郡'],
+  shouchun: ['壽春', '揚州', '九江郡'],
+  hefei: ['合肥', '揚州', '九江郡'],
+  jianye: ['秣陵', '揚州', '丹陽郡'],
+  wu: ['吳縣', '揚州', '吳郡'],
+  kuaiji: ['山陰', '揚州', '會稽郡'],
+  lujiang: ['皖城', '揚州', '廬江郡'],
+  chaishang: ['柴桑', '揚州', '豫章郡'],
+  jiangxia: ['沙羨', '荊州', '江夏郡'],
+  xiangyang: ['襄陽', '荊州', '南郡'],
+  jiangling: ['江陵', '荊州', '南郡'],
+  changsha: ['臨湘', '荊州', '長沙郡'],
+  wuling: ['臨沅', '荊州', '武陵郡'],
+  lingling: ['泉陵', '荊州', '零陵郡'],
+  guiyang: ['郴縣', '荊州', '桂陽郡'],
+  hanzhong: ['南鄭', '益州', '漢中郡'],
+  zitong: ['梓潼', '益州', '廣漢郡'],
+  jiangzhou: ['江州', '益州', '巴郡'],
+  yongan: ['魚復', '益州', '巴東郡'],
+  wudu: ['下辨', '涼州', '武都郡'],
+  tianshui: ['冀縣', '涼州', '漢陽郡'],
+  anding: ['臨涇', '涼州', '安定郡'],
+  wuwei: ['姑臧', '雍州', '武威郡'],
+  yunnan: ['雲南縣', '益州', '永昌郡'],
+  jianning: ['味縣', '益州', '益州郡'],
+  nanhai: ['番禺', '交州', '南海郡'],
+  jiaozhi: ['龍編', '交州', '交趾郡'],
+}
 
 test('城池均为完整七格且互不重叠', () => {
   assert.equal(world.cities.length, 40)
@@ -18,12 +67,54 @@ test('城池均为完整七格且互不重叠', () => {
   }
 })
 
+test('城池稳定ID与208年州郡归属保持锁定', () => {
+  const ids = world.cities.map((city) => city.id)
+  assert.equal(new Set(ids).size, ids.length, '城池ID重复')
+  assert.deepEqual([...ids].sort(), Object.keys(ADMIN_208).sort(), '城池ID集合发生变化')
+  for (const city of world.cities) {
+    const expected = ADMIN_208[city.id]
+    assert.ok(expected, `${city.id} 缺少核实后的行政记录`)
+    assert.equal(city.name, expected[0], `${city.id} 的代表城邑不符`)
+    assert.equal(city.province, expected[1], `${city.id} 的州属不符`)
+    assert.equal(city.prefecture, expected[2], `${city.id} 的郡国级归属不符`)
+    assert.ok(!/縣$/.test(city.prefecture), `${city.id} 的郡级字段仍是县名：${city.prefecture}`)
+  }
+})
+
 test('河网连续且显式汇流点同时属于双方河道', () => {
   assert.deepEqual(auditConnectivity(world), [])
-  assert.ok(world.confluences.length >= 3, '汇流点数量少于河道折线中的共享顶点')
-  const pairs = world.confluences.map((entry) => [...entry.rivers].sort().join('·'))
-  assert.ok(pairs.some((entry) => entry.includes('长江') && entry.includes('汉水')), '长江与汉水未在共享顶点汇流')
-  assert.ok(pairs.some((entry) => entry.includes('长江') && entry.includes('嘉陵江')), '长江与嘉陵江未在共享顶点汇流')
+  assert.ok(world.confluences.length >= 5, '汇流点数量少于河道折线中的共享顶点')
+  /** 判断两条河是否在共享控制点处显式汇流。 */
+  const joins = (first: string, second: string): boolean =>
+    world.confluences.some((entry) => entry.rivers.includes(first) && entry.rivers.includes(second))
+  for (const [first, second] of [['岷江', '长江'], ['沱江', '长江'], ['汉水', '长江'], ['嘉陵江', '长江'], ['涪江', '嘉陵江']] as const) {
+    assert.ok(joins(first, second), `${first}未与${second}在显式汇流点相接`)
+  }
+  assert.ok(!joins('沅水', '长江'), '沅水不应绕过洞庭湖直接接入长江控制点')
+})
+
+test('湘水、沅水、赣水末段分别由洞庭湖与鄱阳湖承接', () => {
+  for (const [riverName, lakeName] of [['沅水', '洞庭湖'], ['湘水', '洞庭湖'], ['赣水', '鄱陽湖']] as const) {
+    const route = world.rivers.find((entry) => entry.name === riverName)
+    assert.ok(route, `缺少${riverName}河道`)
+    const last = world.tiles.get(route.tileKeys.at(-1)!)
+    assert.ok(last, `${riverName}末格缺失`)
+    assert.equal(last.terrain, 'lake', `${riverName}末段未落入湖泊水域`)
+    assert.equal(last.landform, lakeName, `${riverName}末段未由${lakeName}承接`)
+  }
+})
+
+test('冠名河道的记录格在最终地图上仍为水域', () => {
+  for (const route of world.rivers) {
+    for (const key of route.tileKeys) {
+      const tile = world.tiles.get(key)
+      assert.ok(tile, `${route.name}的记录格${key}不存在`)
+      assert.ok(
+        tile.terrain === 'river' || tile.terrain === 'lake' || tile.terrain === 'coast',
+        `${route.name}在${key}被覆盖为${tile.terrain}`,
+      )
+    }
+  }
 })
 
 test('具名山道形成无栈道可通行的跨脊通道', () => {
@@ -46,4 +137,15 @@ test('舟船与栈道限制仍按地形生效', () => {
   const mountain = [...world.tiles.values()].find((tile) => tile.terrain === 'mountain')!
   assert.equal(movementCost(mountain, { unit: 'infantry', boat: false, plank: false }), Infinity)
   assert.ok(Number.isFinite(movementCost(mountain, { unit: 'infantry', boat: false, plank: true })))
+})
+
+test('关键城址未被河道或地形推离目标点位', () => {
+  for (const id of ['xiangyang', 'jiangling', 'jiangzhou', 'shouchun', 'chengdu']) {
+    const city = world.cities.find((entry) => entry.id === id)
+    assert.ok(city, `缺少城池${id}`)
+    const target = pixelToHex(geoToPixel(city.lon, city.lat).x, geoToPixel(city.lon, city.lat).y)
+    // 城心按十格邻域搜位；超出该范围说明河道或地形把城址推到了不相干的位置。
+    const steps = (Math.abs(target.q - city.q) + Math.abs(target.q + target.r - city.q - city.r) + Math.abs(target.r - city.r)) / 2
+    assert.ok(steps <= 10, `${id}城心偏离目标点位${steps}格，超出十格搜位范围`)
+  }
 })

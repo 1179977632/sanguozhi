@@ -205,51 +205,46 @@ const NAMED_LOWLANDS: { name: string; points: GeoPoint[] }[] = [
   { name: '雲貴高原', points: [{ lon: 99.5, lat: 24.0 }, { lon: 101.0, lat: 23.6 }, { lon: 104.0, lat: 24.0 }, { lon: 105.0, lat: 26.6 }, { lon: 103.4, lat: 27.4 }, { lon: 100.6, lat: 26.8 }] },
 ]
 
+// 河道控制点为策略地图示意，依据《水经注》所载水系关系与地理走廊校对；
+// 不表示建安十三年实测河槽、湖岸或河宽，width 只是绘制与栅格化尺度。
 export const RIVERS: { name: string; points: GeoPoint[]; width: number }[] = [
   { name: '黄河', width: 0.15, points: [{ lon: 97, lat: 35 }, { lon: 100, lat: 35.2 }, { lon: 103.8, lat: 36.1 }, { lon: 105.7, lat: 37 }, { lon: 106.3, lat: 39 }, { lon: 107, lat: 40.5 }, { lon: 109.5, lat: 40.7 }, { lon: 110.5, lat: 40 }, { lon: 110.6, lat: 37.5 }, { lon: 110.3, lat: 34.6 }, { lon: 112.4, lat: 34.9 }, { lon: 114, lat: 35.2 }, { lon: 116, lat: 37.3 }, { lon: 118.7, lat: 37.5 }, { lon: 120, lat: 37.8 }] },
-  { name: '长江', width: 0.19, points: [{ lon: 96, lat: 30.2 }, { lon: 99, lat: 28 }, { lon: 101.5, lat: 26.6 }, { lon: 103, lat: 28.2 }, { lon: 104.6, lat: 28.75 }, { lon: 106.55, lat: 29.56 }, { lon: 108.4, lat: 30.8 }, { lon: 109.47, lat: 31.02 }, { lon: 111.3, lat: 30.7 }, { lon: 112.19, lat: 30.35 }, { lon: 114.31, lat: 30.59 }, { lon: 115.99, lat: 29.73 }, { lon: 117.1, lat: 30.5 }, { lon: 118.79, lat: 32.06 }, { lon: 120, lat: 31.8 }, { lon: 121.5, lat: 31.3 }] },
+  // 长江按宜宾—泸州—江州—江陵—夏口—秣陵—入海走廊示意；宜宾、泸州、江州为显式汇流点。
+  { name: '长江', width: 0.19, points: [{ lon: 96, lat: 30.2 }, { lon: 99, lat: 28 }, { lon: 101.5, lat: 26.6 }, { lon: 103, lat: 28.2 }, { lon: 104.6, lat: 28.75 }, { lon: 105.44, lat: 28.87 }, { lon: 106.55, lat: 29.56 }, { lon: 108.4, lat: 30.8 }, { lon: 109.47, lat: 31.02 }, { lon: 111.3, lat: 30.7 }, { lon: 112.19, lat: 30.35 }, { lon: 114.31, lat: 30.59 }, { lon: 115.99, lat: 29.73 }, { lon: 117.1, lat: 30.5 }, { lon: 118.79, lat: 32.06 }, { lon: 120, lat: 31.8 }, { lon: 121.5, lat: 31.3 }] },
   { name: '汉水', width: 0.12, points: [{ lon: 106, lat: 33.1 }, { lon: 108, lat: 32.8 }, { lon: 109.5, lat: 32.4 }, { lon: 112.14, lat: 32.04 }, { lon: 113, lat: 31.4 }, { lon: 114.31, lat: 30.59 }] },
-  { name: '淮水', width: 0.1, points: [{ lon: 111.5, lat: 33.2 }, { lon: 114, lat: 33 }, { lon: 116, lat: 32.7 }, { lon: 118, lat: 33.3 }, { lon: 119.5, lat: 33.4 }] },
-  { name: '湘水', width: 0.08, points: [{ lon: 111.61, lat: 26.42 }, { lon: 112.2, lat: 27.5 }, { lon: 112.94, lat: 28.23 }, { lon: 112.8, lat: 29.3 }] },
+  // 淮水自桐柏山东流，经寿春北、洪泽洼地一带入海；下游为示意，不表示后世湖界。
+  { name: '淮水', width: 0.1, points: [{ lon: 113.2, lat: 32.4 }, { lon: 114.5, lat: 32.4 }, { lon: 116, lat: 32.55 }, { lon: 117.5, lat: 32.85 }, { lon: 118.7, lat: 33.25 }, { lon: 119.6, lat: 33.9 }] },
+  { name: '湘水', width: 0.08, points: [{ lon: 110.95, lat: 25.75 }, { lon: 111.61, lat: 26.42 }, { lon: 112.2, lat: 27.5 }, { lon: 112.94, lat: 28.23 }, { lon: 112.8, lat: 29.3 }] },
   { name: '赣水', width: 0.09, points: [{ lon: 114.9, lat: 25.8 }, { lon: 114.9, lat: 26.8 }, { lon: 115.2, lat: 27.5 }, { lon: 115.8, lat: 28.6 }, { lon: 116.1, lat: 29.7 }] },
   { name: '珠江', width: 0.12, points: [{ lon: 106.5, lat: 25.5 }, { lon: 109, lat: 24.2 }, { lon: 111, lat: 24 }, { lon: 113, lat: 23.2 }, { lon: 113.5, lat: 22.8 }] },
-  { name: '岷江', width: 0.08, points: [{ lon: 103.8, lat: 32.7 }, { lon: 103.6, lat: 31.8 }, { lon: 103.8, lat: 31.2 }, { lon: 104.1, lat: 30.75 }, { lon: 104.15, lat: 30.55 }] },
-  { name: '沱江', width: 0.07, points: [{ lon: 104.6, lat: 31.6 }, { lon: 104.55, lat: 30.9 }, { lon: 104.75, lat: 30.4 }, { lon: 105.05, lat: 29.85 }] },
-  { name: '嘉陵江', width: 0.09, points: [{ lon: 105.5, lat: 33.2 }, { lon: 106.1, lat: 32.2 }, { lon: 106.0, lat: 31.1 }, { lon: 106.55, lat: 29.56 }] },
-  { name: '涪江', width: 0.06, points: [{ lon: 103.9, lat: 32.0 }, { lon: 104.7, lat: 31.5 }, { lon: 105.3, lat: 30.9 }, { lon: 106.0, lat: 30.1 }] },
-  { name: '沅水', width: 0.07, points: [{ lon: 109.8, lat: 27.4 }, { lon: 110.0, lat: 28.1 }, { lon: 110.4, lat: 28.7 }, { lon: 111.1, lat: 29.1 }, { lon: 112.19, lat: 30.35 }] },
+  // 岷江经都江堰、乐山至宜宾入江，不再止于成都平原南缘。
+  { name: '岷江', width: 0.08, points: [{ lon: 103.8, lat: 32.7 }, { lon: 103.6, lat: 31.8 }, { lon: 103.8, lat: 31.2 }, { lon: 104.1, lat: 30.75 }, { lon: 104.15, lat: 30.55 }, { lon: 103.75, lat: 29.55 }, { lon: 104.6, lat: 28.75 }] },
+  // 沱江经泸州入江；泸州同时是长江控制点，构成显式汇流。
+  { name: '沱江', width: 0.07, points: [{ lon: 104.6, lat: 31.6 }, { lon: 104.55, lat: 30.9 }, { lon: 104.75, lat: 30.4 }, { lon: 105.05, lat: 29.85 }, { lon: 105.44, lat: 28.87 }] },
+  // 嘉陵江经合川至江州入江；合川为与涪江的显式汇流点。
+  { name: '嘉陵江', width: 0.09, points: [{ lon: 105.5, lat: 33.2 }, { lon: 106.1, lat: 32.2 }, { lon: 106.0, lat: 31.1 }, { lon: 106.27, lat: 30.0 }, { lon: 106.55, lat: 29.56 }] },
+  { name: '涪江', width: 0.06, points: [{ lon: 103.9, lat: 32.0 }, { lon: 104.7, lat: 31.5 }, { lon: 105.3, lat: 30.9 }, { lon: 106.0, lat: 30.1 }, { lon: 106.27, lat: 30.0 }] },
+  // 沅水入洞庭湖，经湖泊水域通江，不再直接接到江陵附近的长江控制点。
+  { name: '沅水', width: 0.07, points: [{ lon: 109.8, lat: 27.4 }, { lon: 110.0, lat: 28.1 }, { lon: 110.4, lat: 28.7 }, { lon: 111.1, lat: 29.1 }, { lon: 112.2, lat: 29.2 }] },
 ]
 
-/** 将河道折线加密并做横向摆动，形成连续河曲，供地形判定与河格栅格化共用。 */
-function meanderRiver(points: GeoPoint[], riverSeed: number, amplitude: number): GeoPoint[] {
-  const meandered: GeoPoint[] = []
-  let walked = 0
+/** 将河道控制折线按约零点一度加密，只细化采样，不添加无史料依据的横向摆动。 */
+function densifyRiver(points: GeoPoint[]): GeoPoint[] {
+  const densified: GeoPoint[] = []
   for (let index = 0; index < points.length - 1; index++) {
     const first = points[index]!
     const second = points[index + 1]!
     const steps = Math.max(3, Math.round(Math.hypot(second.lon - first.lon, second.lat - first.lat) / 0.1))
-    const longitudeScale = Math.cos(((first.lat + second.lat) / 2) * Math.PI / 180)
-    const dx = (second.lon - first.lon) * longitudeScale
-    const dy = second.lat - first.lat
-    const length = Math.hypot(dx, dy) || 1
     for (let step = 0; step < steps; step++) {
       const t = step / steps
-      const lon = first.lon + (second.lon - first.lon) * t
-      const lat = first.lat + (second.lat - first.lat) * t
-      // 按弧长采样一维噪声：大弯约十余格一折，小弯数格一抖，整条河弯曲频率一致。
-      const distance = (walked + length * t) * GEO_SCALE_X
-      const rawSway = ((alongNoise(riverSeed, distance / 26, 1) - 0.5) * 1.5 + (alongNoise(riverSeed + 19, distance / 9, 1) - 0.5) * 0.7) * amplitude
-      // 端点权重归零，使折线控制点（含汇流点）不被河曲扰动挪动。
-      const sway = rawSway * Math.sin(Math.PI * t)
-      meandered.push({ lon: lon - (dy / length) * sway / longitudeScale, lat: lat + (dx / length) * sway })
+      densified.push({ lon: first.lon + (second.lon - first.lon) * t, lat: first.lat + (second.lat - first.lat) * t })
     }
-    walked += length
   }
-  meandered.push(points[points.length - 1]!)
-  return meandered
+  densified.push(points[points.length - 1]!)
+  return densified
 }
 
-const RIVER_PATHS = new Map(RIVERS.map((river) => [river, meanderRiver(river.points, nameSeed(river.name) + 911, 0.24)] as const))
+const RIVER_PATHS = new Map(RIVERS.map((river) => [river, densifyRiver(river.points)] as const))
 
 // 湖岸为策略地图的示意折线，描述水系位置与河网形态，不等同汉末精确岸线。
 export const LAKES: { name: string; points: GeoPoint[]; islands?: GeoPoint[][]; label: GeoPoint }[] = [
@@ -279,38 +274,38 @@ const CITY_RECORDS: CityRecord[] = [
   { id: 'xuchang', name: '許縣', en: 'XUXIAN', province: '豫州', prefecture: '潁川郡', faction: 'cao', lon: 113.8526, lat: 34.0357, description: '許縣為漢廷所在，曹操挾天子以令諸侯的政治中心。' },
   { id: 'chang-an', name: '長安', en: 'CHANGAN', province: '司隸', prefecture: '京兆尹', faction: 'cao', lon: 108.94, lat: 34.26, description: '關中故都，建安十三年仍屬司隸京兆尹。' },
   { id: 'ye', name: '鄴', en: 'YE', province: '冀州', prefecture: '魏郡', faction: 'cao', lon: 114.6, lat: 36.33, description: '河北要城，曹操經營北方的根基之一，控帶太行與平原。' },
-  { id: 'beiping', name: '北平', en: 'BEIPING', province: '幽州', prefecture: '右北平郡', faction: 'cao', lon: 118.9, lat: 39.88, description: '幽燕北疆重鎮，南通冀州，北扼燕山諸道。' },
+  { id: 'beiping', name: '土垠', en: 'TUGEN', province: '幽州', prefecture: '右北平郡', faction: 'cao', lon: 118.2, lat: 39.8, description: '右北平郡治土垠，北接燕山，為幽州東北邊城；點位為郡治故城的近似定位。' },
   { id: 'jinyang', name: '晉陽', en: 'JINYANG', province: '并州', prefecture: '太原郡', faction: 'cao', lon: 112.55, lat: 37.87, description: '太原盆地雄城，西望呂梁，東臨太行。' },
   { id: 'pingyuan', name: '平原', en: 'PINGYUAN', province: '青州', prefecture: '平原郡', faction: 'cao', lon: 116.36, lat: 37.43, description: '黃河下游平原郡城，扼守冀州、青州往來之路。' },
   { id: 'nanpi', name: '南皮', en: 'NANPI', province: '冀州', prefecture: '勃海郡', faction: 'cao', lon: 116.7, lat: 38.04, description: '勃海郡治，瀕近燕趙海口，素為河北軍事重地。' },
   { id: 'xiapi', name: '下邳', en: 'XIAPI', province: '徐州', prefecture: '下邳郡', faction: 'cao', lon: 117.88689, lat: 34.11826, description: '建安十一年下邳國除為郡；郡治下邳，控淮泗水陸要道。' },
-  { id: 'beihai', name: '北海', en: 'BEIHAI', province: '青州', prefecture: '北海郡', faction: 'cao', lon: 118.48, lat: 36.69, description: '建安十一年北海國除為郡；郡治劇縣，位於青州東境。' },
-  { id: 'puyang', name: '濮陽', en: 'PUYANG', province: '兗州', prefecture: '濮陽縣', faction: 'cao', lon: 115.03, lat: 35.76, description: '兗州黃河津渡要城，為中原北門之一。' },
+  { id: 'beihai', name: '劇縣', en: 'JUXIAN', province: '青州', prefecture: '北海郡', faction: 'cao', lon: 118.75, lat: 36.8, description: '建安十一年（206）北海國除為郡；郡治劇縣，位於青州東境。點位為劇縣故城的近似定位。' },
+  { id: 'puyang', name: '濮陽', en: 'PUYANG', province: '兗州', prefecture: '東郡', faction: 'cao', lon: 115.03, lat: 35.76, description: '兗州東郡治濮陽，黃河津渡要城，為中原北門之一。' },
   { id: 'chenliu', name: '陳留', en: 'CHENLIU', province: '兗州', prefecture: '陳留郡', faction: 'cao', lon: 114.3, lat: 34.8, description: '汴渠與中原驛路交會，東西轉運皆經其境。' },
-  { id: 'runan', name: '汝南', en: 'RUNAN', province: '豫州', prefecture: '汝南郡', faction: 'cao', lon: 114.36, lat: 33.01, description: '豫州南郡，水網與沃土交錯，兵員糧源充足。' },
+  { id: 'runan', name: '平輿', en: 'PINGYU', province: '豫州', prefecture: '汝南郡', faction: 'cao', lon: 114.63, lat: 32.96, description: '汝南郡治平輿，潁汝之間水網與沃土交錯，兵員糧源充足；點位為郡治故城的近似定位。' },
   { id: 'shouchun', name: '壽春', en: 'SHOUCHUN', province: '揚州', prefecture: '九江郡', faction: 'cao', lon: 116.79, lat: 32.57, description: '淮南重鎮，北拒中原，南通合肥與江東。' },
   { id: 'hefei', name: '合肥', en: 'HEFEI', province: '揚州', prefecture: '九江郡', faction: 'cao', lon: 117.23, lat: 31.82, description: '東漢合肥侯國屬九江郡，為淮南水陸咽喉。' },
   { id: 'jianye', name: '秣陵', en: 'MOLING', province: '揚州', prefecture: '丹陽郡', faction: 'sun', lon: 118.79, lat: 32.06, description: '丹陽郡境大江津渡，孫權所據江東腹地，舟楫可達諸郡。' },
-  { id: 'wu', name: '吳郡', en: 'WU', province: '揚州', prefecture: '吳郡', faction: 'sun', lon: 120.62, lat: 31.3, description: '江東膏腴之地，湖蕩相間，桑麻與舟楫俱盛。' },
-  { id: 'kuaiji', name: '會稽', en: 'KUAJI', province: '揚州', prefecture: '會稽郡', faction: 'sun', lon: 120.58, lat: 30, description: '東南沿海郡治，山越環伺，港汊綿延。' },
+  { id: 'wu', name: '吳縣', en: 'WUXIAN', province: '揚州', prefecture: '吳郡', faction: 'sun', lon: 120.62, lat: 31.3, description: '吳郡治吳縣，江東膏腴之地，湖蕩相間，桑麻與舟楫俱盛。' },
+  { id: 'kuaiji', name: '山陰', en: 'SHANYIN', province: '揚州', prefecture: '會稽郡', faction: 'sun', lon: 120.58, lat: 30, description: '會稽郡治山陰，東南沿海郡城，山越環伺，港汊綿延。' },
   { id: 'lujiang', name: '皖城', en: 'WAN', province: '揚州', prefecture: '廬江郡', faction: 'local', lon: 116.57, lat: 30.63, description: '孫策於建安四年（199）襲取皖城，後由李術守城；建安十三年此城實際控制方待考，點位為近似定位。' },
   { id: 'chaishang', name: '柴桑', en: 'CHAISANG', province: '揚州', prefecture: '豫章郡', faction: 'sun', lon: 115.99, lat: 29.73, description: '長江與鄱陽湖之間的要津，通江東而控荊州。' },
-  // 208 年春孫權破黃祖後所得江夏南境；此點僅代表沙羨，不代表全江夏郡。
-  { id: 'jiangxia', name: '沙羨', en: 'SHAXIAN', province: '荊州', prefecture: '江夏郡', faction: 'sun', lon: 114.13541, lat: 30.34289, description: '孫權破黃祖後所據江夏南境，沙羨為吳江夏郡治；此點不代表全江夏郡歸屬。' },
+  // 208 年春孫權破黃祖後，分漢江夏郡置吳江夏郡，治沙羨；此點僅示沙羨一帶，不代表全江夏郡。
+  { id: 'jiangxia', name: '沙羨', en: 'SHAXIAN', province: '荊州', prefecture: '江夏郡', faction: 'sun', lon: 114.13541, lat: 30.34289, description: '建安十三年春孫權破黃祖後，分漢江夏郡置吳江夏郡，治沙羨；此點不代表全江夏郡歸屬。' },
   { id: 'xiangyang', name: '襄陽', en: 'XIANGYANG', province: '荊州', prefecture: '南郡', faction: 'liubiao', lon: 112.14, lat: 32.04, description: '劉表所據荊州重城，此時屬南郡；襄陽郡為劉琮降曹後分置，尚未發生。' },
   { id: 'jiangling', name: '江陵', en: 'JIANGLING', province: '荊州', prefecture: '南郡', faction: 'liubiao', lon: 112.19, lat: 30.35, description: '南郡治所，據長江中游，東西荊州交界之戰略樞紐。' },
-  { id: 'changsha', name: '長沙', en: 'CHANGSHA', province: '荊州', prefecture: '長沙郡', faction: 'liubiao', lon: 112.94, lat: 28.23, description: '湘水穿城而過，南望嶺表，為荊州南部大郡。' },
-  { id: 'wuling', name: '武陵', en: 'WULING', province: '荊州', prefecture: '武陵郡', faction: 'liubiao', lon: 111.69, lat: 29.03, description: '五溪與武陵山交界之處，通巴蜀、荊南之路。' },
-  { id: 'lingling', name: '零陵', en: 'LINGLING', province: '荊州', prefecture: '零陵郡', faction: 'liubiao', lon: 111.61, lat: 26.42, description: '湘水上游之郡，北通荊南，南入五嶺山道。' },
-  { id: 'guiyang', name: '桂陽', en: 'GUIYANG', province: '荊州', prefecture: '桂陽郡', faction: 'liubiao', lon: 113.02, lat: 25.79, description: '五嶺北麓關隘郡城，據南北轉運與山道隘口。' },
-  { id: 'hanzhong', name: '漢中', en: 'HANZHONG', province: '益州', prefecture: '漢中郡', faction: 'zhanglu', lon: 107.02, lat: 33.07, description: '張魯據漢中，與劉璋割據爭戰；僅示城邑控制，不推定巴漢精確疆界。' },
-  { id: 'zitong', name: '梓潼', en: 'ZITONG', province: '益州', prefecture: '梓潼縣', faction: 'liuzhang', lon: 105.17, lat: 31.64, description: '益州北道要地，連通漢中棧道與成都平原。' },
+  { id: 'changsha', name: '臨湘', en: 'LINXIANG', province: '荊州', prefecture: '長沙郡', faction: 'liubiao', lon: 112.94, lat: 28.23, description: '長沙郡治臨湘，湘水穿城而過，南望嶺表，為荊州南部大郡。' },
+  { id: 'wuling', name: '臨沅', en: 'LINYUAN', province: '荊州', prefecture: '武陵郡', faction: 'liubiao', lon: 111.69, lat: 29.03, description: '武陵郡治臨沅，五溪與武陵山交界之處，通巴蜀、荊南之路。' },
+  { id: 'lingling', name: '泉陵', en: 'QUANLING', province: '荊州', prefecture: '零陵郡', faction: 'liubiao', lon: 111.61, lat: 26.42, description: '零陵郡治泉陵，湘水上游之郡，北通荊南，南入五嶺山道。' },
+  { id: 'guiyang', name: '郴縣', en: 'CHENXIAN', province: '荊州', prefecture: '桂陽郡', faction: 'liubiao', lon: 113.02, lat: 25.79, description: '桂陽郡治郴縣，五嶺北麓關隘郡城，據南北轉運與山道隘口。' },
+  { id: 'hanzhong', name: '南鄭', en: 'NANZHENG', province: '益州', prefecture: '漢中郡', faction: 'zhanglu', lon: 107.02, lat: 33.07, description: '張魯據漢中，治南鄭，與劉璋割據爭戰；僅示城邑控制，不推定巴漢精確疆界。' },
+  { id: 'zitong', name: '梓潼', en: 'ZITONG', province: '益州', prefecture: '廣漢郡', faction: 'liuzhang', lon: 105.17, lat: 31.64, description: '梓潼縣屬廣漢郡，益州北道要地，連通漢中棧道與成都平原；梓潼郡至建安二十二年（217）始分置。' },
   { id: 'jiangzhou', name: '江州', en: 'JIANGZHOU', province: '益州', prefecture: '巴郡', faction: 'liuzhang', lon: 106.55, lat: 29.56, description: '嘉陵、長江交會之城，居巴蜀水陸轉運中心。' },
   { id: 'yongan', name: '魚復', en: 'YUFU', province: '益州', prefecture: '巴東郡', faction: 'liuzhang', lon: 109.47, lat: 31.02, description: '建安六年（201）固陵郡改名巴東郡，郡治魚復；此處為後世治所白帝城一帶的近似點位。' },
-  { id: 'wudu', name: '下辨', en: 'XIABIAN', province: '益州', prefecture: '武都郡', faction: 'local', lon: 105.78, lat: 33.79, description: '武都郡治下辨，約在今成縣一帶；點位為近似定位，漢末具體控制情況待考。' },
+  { id: 'wudu', name: '下辨', en: 'XIABIAN', province: '涼州', prefecture: '武都郡', faction: 'local', lon: 105.78, lat: 33.79, description: '武都郡治下辨，屬涼州，約在今成縣一帶；點位為近似定位，漢末具體控制情況待考。' },
   { id: 'tianshui', name: '冀縣', en: 'JIXIAN', province: '涼州', prefecture: '漢陽郡', faction: 'local', lon: 105.38878, lat: 34.73837, description: '漢陽郡治冀縣，隸屬涼州；此時具體控制方不作確定判定。' },
   { id: 'anding', name: '臨涇', en: 'LINJING', province: '涼州', prefecture: '安定郡', faction: 'local', lon: 107.37, lat: 35.31, description: '安定郡治臨涇，約在今涇川水泉寺一帶；此時仍屬涼州，控制方待考。' },
-  { id: 'wuwei', name: '武威', en: 'WUWEI', province: '雍州', prefecture: '武威郡', faction: 'local', lon: 102.64, lat: 37.93, description: '興平元年（194）另置雍州統轄河西四郡，武威郡屬之；具體控制待考。' },
+  { id: 'wuwei', name: '姑臧', en: 'GUZANG', province: '雍州', prefecture: '武威郡', faction: 'local', lon: 102.64, lat: 37.93, description: '武威郡治姑臧，興平元年（194）置雍州統轄河西四郡，姑臧為州、郡治所；具體控制待考。' },
   { id: 'yunnan', name: '雲南縣', en: 'YUNNAN', province: '益州', prefecture: '永昌郡', faction: 'local', lon: 100.55, lat: 25.48, description: '東漢永昌郡雲南縣，約在今雲南驛，非今大理城或滇池；點位為近似定位，實際控制待考。' },
   { id: 'jianning', name: '味縣', en: 'WEIXIAN', province: '益州', prefecture: '益州郡', faction: 'local', lon: 103.73, lat: 25.53, description: '東漢益州郡味縣，約在今曲靖一帶；點位為近似定位，地方勢力與實際控制待考。' },
   { id: 'nanhai', name: '番禺', en: 'PANYU', province: '交州', prefecture: '南海郡', faction: 'local', lon: 113.25607, lat: 23.13462, description: '南海郡治番禺，嶺南海上門戶；本時點實際控制待考，不以後來吳地歸屬推定孫權控制。' },

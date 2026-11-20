@@ -15,7 +15,7 @@ app.innerHTML = `
       </div>
       <nav class="topnav" aria-label="地图图层">
         <button class="active" type="button" data-nav-filter="overview">天下形势</button>
-        <button type="button" data-nav-filter="factions">州郡線（示意）</button>
+        <button type="button" data-nav-filter="factions">州界（示意）</button>
         <button type="button" data-nav-filter="cities">列郡城邑</button>
       </nav>
       <div class="era-label">建安十三年（208）· 劉表病逝前</div>
@@ -85,8 +85,8 @@ app.innerHTML = `
           <div class="layer-list">
             <label class="layer-row"><input data-layer="showRelief" type="checkbox" checked />山川地勢</label>
             <label class="layer-row"><input data-layer="showLabels" type="checkbox" checked />城池標記</label>
-            <label class="layer-row"><input data-layer="showBorders" type="checkbox" />州郡線（示意）</label>
-            <small>依城邑近似生成，非歷史疆域。</small>
+            <label class="layer-row"><input data-layer="showBorders" type="checkbox" />州界（示意）</label>
+            <small>依城邑歸屬近似生成，非歷史疆域；不繪郡界。</small>
             <label class="layer-row"><input data-layer="showSeaLabels" type="checkbox" checked />海域名稱</label>
           </div>
           <div class="detail-head" style="margin-top:16px;margin-bottom:8px"><h3>地形篩選</h3></div>
@@ -712,7 +712,7 @@ function updateSelection(): void {
   const terrain = TERRAIN[tile.terrain]
   const faction = city ? FACTIONS[city.faction] : undefined
   inspectorElement.innerHTML = city ? `
-    <div class="inspector-place"><span class="inspector-label">所在州</span><strong>${city.province} · ${city.prefecture}</strong></div>
+    <div class="inspector-place"><span class="inspector-label">州 · 郡國級歸屬</span><strong>${city.province} · ${city.prefecture}</strong></div>
     <h2 class="inspector-name">${city.name}<span>${city.en}</span></h2>
     <p class="inspector-copy">${city.description}</p>
     <div class="inspector-facts">
