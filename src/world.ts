@@ -37,9 +37,17 @@ export interface MovementOptions {
   plank: boolean
 }
 
+export type RiverTerminal =
+  | { kind: 'sea'; point: { lon: number; lat: number } }
+  | { kind: 'lake'; target: string }
+  | { kind: 'river'; target: string; point: { lon: number; lat: number } }
+  | { kind: 'pending'; target: 'sea'; detail: string }
+
 export interface RiverRoute {
   name: string
-  /** 该河在最终地图上的连续水道格，按上游到下游顺序排列。 */
+  terminal: RiverTerminal
+  source?: { kind: 'lake'; name: string }
+  /** 该河在最终地图上的连续水道格，按上游到下游排列。 */
   tileKeys: string[]
 }
 
@@ -61,7 +69,7 @@ export interface PassRoute {
 }
 
 export interface ConnectivityIssue {
-  kind: 'river-gap' | 'confluence' | 'pass-gap' | 'pass-blocked'
+  kind: 'river-gap' | 'river-terminal' | 'river-pending' | 'confluence' | 'pass-gap' | 'pass-blocked'
   subject: string
   detail: string
 }
@@ -207,25 +215,26 @@ const NAMED_LOWLANDS: { name: string; points: GeoPoint[] }[] = [
 
 // 河道控制点为策略地图示意，依据《水经注》所载水系关系与地理走廊校对；
 // 不表示建安十三年实测河槽、湖岸或河宽，width 只是绘制与栅格化尺度。
-export const RIVERS: { name: string; points: GeoPoint[]; width: number }[] = [
-  { name: '黄河', width: 0.15, points: [{ lon: 97, lat: 35 }, { lon: 100, lat: 35.2 }, { lon: 103.8, lat: 36.1 }, { lon: 105.7, lat: 37 }, { lon: 106.3, lat: 39 }, { lon: 107, lat: 40.5 }, { lon: 109.5, lat: 40.7 }, { lon: 110.5, lat: 40 }, { lon: 110.6, lat: 37.5 }, { lon: 110.3, lat: 34.6 }, { lon: 112.4, lat: 34.9 }, { lon: 114, lat: 35.2 }, { lon: 116, lat: 37.3 }, { lon: 118.7, lat: 37.5 }, { lon: 120, lat: 37.8 }] },
+export const RIVERS: { name: string; points: GeoPoint[]; width: number; terminal: RiverTerminal; source?: { kind: 'lake'; name: string } }[] = [
+  { name: '黄河', width: 0.15, terminal: { kind: 'pending', target: 'sea', detail: '预期入海，下游示意走廊待确认' }, points: [{ lon: 97, lat: 35 }, { lon: 100, lat: 35.2 }, { lon: 103.8, lat: 36.1 }, { lon: 105.7, lat: 37 }, { lon: 106.3, lat: 39 }, { lon: 107, lat: 40.5 }, { lon: 109.5, lat: 40.7 }, { lon: 110.5, lat: 40 }, { lon: 110.6, lat: 37.5 }, { lon: 110.3, lat: 34.6 }, { lon: 112.4, lat: 34.9 }, { lon: 114, lat: 35.2 }, { lon: 116, lat: 37.3 }, { lon: 118.7, lat: 37.5 }, { lon: 120, lat: 37.8 }] },
   // 长江按宜宾—泸州—江州—江陵—夏口—秣陵—入海走廊示意；宜宾、泸州、江州为显式汇流点。
-  { name: '长江', width: 0.19, points: [{ lon: 96, lat: 30.2 }, { lon: 99, lat: 28 }, { lon: 101.5, lat: 26.6 }, { lon: 103, lat: 28.2 }, { lon: 104.6, lat: 28.75 }, { lon: 105.44, lat: 28.87 }, { lon: 106.55, lat: 29.56 }, { lon: 108.4, lat: 30.8 }, { lon: 109.47, lat: 31.02 }, { lon: 111.3, lat: 30.7 }, { lon: 112.19, lat: 30.35 }, { lon: 114.31, lat: 30.59 }, { lon: 115.99, lat: 29.73 }, { lon: 117.1, lat: 30.5 }, { lon: 118.79, lat: 32.06 }, { lon: 120, lat: 31.8 }, { lon: 121.5, lat: 31.3 }] },
-  { name: '汉水', width: 0.12, points: [{ lon: 106, lat: 33.1 }, { lon: 108, lat: 32.8 }, { lon: 109.5, lat: 32.4 }, { lon: 112.14, lat: 32.04 }, { lon: 113, lat: 31.4 }, { lon: 114.31, lat: 30.59 }] },
-  // 淮水自桐柏山东流，经寿春北、洪泽洼地一带入海；下游为示意，不表示后世湖界。
-  { name: '淮水', width: 0.1, points: [{ lon: 113.2, lat: 32.4 }, { lon: 114.5, lat: 32.4 }, { lon: 116, lat: 32.55 }, { lon: 117.5, lat: 32.85 }, { lon: 118.7, lat: 33.25 }, { lon: 119.6, lat: 33.9 }] },
-  { name: '湘水', width: 0.08, points: [{ lon: 110.95, lat: 25.75 }, { lon: 111.61, lat: 26.42 }, { lon: 112.2, lat: 27.5 }, { lon: 112.94, lat: 28.23 }, { lon: 112.8, lat: 29.3 }] },
-  { name: '赣水', width: 0.09, points: [{ lon: 114.9, lat: 25.8 }, { lon: 114.9, lat: 26.8 }, { lon: 115.2, lat: 27.5 }, { lon: 115.8, lat: 28.6 }, { lon: 116.1, lat: 29.7 }] },
-  { name: '珠江', width: 0.12, points: [{ lon: 106.5, lat: 25.5 }, { lon: 109, lat: 24.2 }, { lon: 111, lat: 24 }, { lon: 113, lat: 23.2 }, { lon: 113.5, lat: 22.8 }] },
+  { name: '长江', width: 0.19, terminal: { kind: 'sea', point: { lon: 122.1, lat: 31.1 } }, points: [{ lon: 96, lat: 30.2 }, { lon: 99, lat: 28 }, { lon: 101.5, lat: 26.6 }, { lon: 103, lat: 28.2 }, { lon: 104.6, lat: 28.75 }, { lon: 105.44, lat: 28.87 }, { lon: 106.55, lat: 29.56 }, { lon: 108.4, lat: 30.8 }, { lon: 109.47, lat: 31.02 }, { lon: 111.3, lat: 30.7 }, { lon: 112.19, lat: 30.35 }, { lon: 113.25, lat: 30.47 }, { lon: 114.31, lat: 30.59 }, { lon: 115.99, lat: 29.73 }, { lon: 117.1, lat: 30.5 }, { lon: 118.79, lat: 32.06 }, { lon: 120, lat: 31.8 }, { lon: 121.5, lat: 31.3 }, { lon: 122.1, lat: 31.1 }] },
+  { name: '汉水', width: 0.12, terminal: { kind: 'river', target: '长江', point: { lon: 114.31, lat: 30.59 } }, points: [{ lon: 106, lat: 33.1 }, { lon: 108, lat: 32.8 }, { lon: 109.5, lat: 32.4 }, { lon: 112.14, lat: 32.04 }, { lon: 113, lat: 31.4 }, { lon: 114.31, lat: 30.59 }] },
+  // 淮水下游在本图仅作待定示意，避免沿不可靠岸线无约束延伸。
+  { name: '淮水', width: 0.1, terminal: { kind: 'pending', target: 'sea', detail: '预期入海，下游示意走廊待确认' }, points: [{ lon: 113.2, lat: 32.4 }, { lon: 114.5, lat: 32.4 }, { lon: 116, lat: 32.55 }, { lon: 117.5, lat: 32.85 }, { lon: 118.7, lat: 33.25 }, { lon: 119.6, lat: 33.9 }] },
+  { name: '湘水', width: 0.08, terminal: { kind: 'lake', target: '洞庭湖' }, points: [{ lon: 110.95, lat: 25.75 }, { lon: 111.61, lat: 26.42 }, { lon: 112.2, lat: 27.5 }, { lon: 112.94, lat: 28.23 }, { lon: 112.8, lat: 29.3 }] },
+  { name: '赣水', width: 0.09, terminal: { kind: 'lake', target: '鄱陽湖' }, points: [{ lon: 114.9, lat: 25.8 }, { lon: 114.9, lat: 26.8 }, { lon: 115.2, lat: 27.5 }, { lon: 115.8, lat: 28.6 }, { lon: 116.1, lat: 29.7 }] },
+  { name: '珠江', width: 0.12, terminal: { kind: 'sea', point: { lon: 113.8, lat: 22.5 } }, points: [{ lon: 106.5, lat: 25.5 }, { lon: 109, lat: 24.2 }, { lon: 111, lat: 24 }, { lon: 113, lat: 23.2 }, { lon: 113.5, lat: 22.8 }, { lon: 113.8, lat: 22.5 }] },
   // 岷江经都江堰、乐山至宜宾入江，不再止于成都平原南缘。
-  { name: '岷江', width: 0.08, points: [{ lon: 103.8, lat: 32.7 }, { lon: 103.6, lat: 31.8 }, { lon: 103.8, lat: 31.2 }, { lon: 104.1, lat: 30.75 }, { lon: 104.15, lat: 30.55 }, { lon: 103.75, lat: 29.55 }, { lon: 104.6, lat: 28.75 }] },
+  { name: '岷江', width: 0.08, terminal: { kind: 'river', target: '长江', point: { lon: 104.6, lat: 28.75 } }, points: [{ lon: 103.8, lat: 32.7 }, { lon: 103.6, lat: 31.8 }, { lon: 103.8, lat: 31.2 }, { lon: 104.1, lat: 30.75 }, { lon: 104.15, lat: 30.55 }, { lon: 103.75, lat: 29.55 }, { lon: 104.6, lat: 28.75 }] },
   // 沱江经泸州入江；泸州同时是长江控制点，构成显式汇流。
-  { name: '沱江', width: 0.07, points: [{ lon: 104.6, lat: 31.6 }, { lon: 104.55, lat: 30.9 }, { lon: 104.75, lat: 30.4 }, { lon: 105.05, lat: 29.85 }, { lon: 105.44, lat: 28.87 }] },
+  { name: '沱江', width: 0.07, terminal: { kind: 'river', target: '长江', point: { lon: 105.44, lat: 28.87 } }, points: [{ lon: 104.6, lat: 31.6 }, { lon: 104.55, lat: 30.9 }, { lon: 104.75, lat: 30.4 }, { lon: 105.05, lat: 29.85 }, { lon: 105.44, lat: 28.87 }] },
   // 嘉陵江经合川至江州入江；合川为与涪江的显式汇流点。
-  { name: '嘉陵江', width: 0.09, points: [{ lon: 105.5, lat: 33.2 }, { lon: 106.1, lat: 32.2 }, { lon: 106.0, lat: 31.1 }, { lon: 106.27, lat: 30.0 }, { lon: 106.55, lat: 29.56 }] },
-  { name: '涪江', width: 0.06, points: [{ lon: 103.9, lat: 32.0 }, { lon: 104.7, lat: 31.5 }, { lon: 105.3, lat: 30.9 }, { lon: 106.0, lat: 30.1 }, { lon: 106.27, lat: 30.0 }] },
+  { name: '嘉陵江', width: 0.09, terminal: { kind: 'river', target: '长江', point: { lon: 106.55, lat: 29.56 } }, points: [{ lon: 105.5, lat: 33.2 }, { lon: 106.1, lat: 32.2 }, { lon: 106.0, lat: 31.1 }, { lon: 106.27, lat: 30.0 }, { lon: 106.55, lat: 29.56 }] },
+  { name: '涪江', width: 0.06, terminal: { kind: 'river', target: '嘉陵江', point: { lon: 106.27, lat: 30.0 } }, points: [{ lon: 103.9, lat: 32.0 }, { lon: 104.7, lat: 31.5 }, { lon: 105.3, lat: 30.9 }, { lon: 106.0, lat: 30.1 }, { lon: 106.27, lat: 30.0 }] },
   // 沅水入洞庭湖，经湖泊水域通江，不再直接接到江陵附近的长江控制点。
-  { name: '沅水', width: 0.07, points: [{ lon: 109.8, lat: 27.4 }, { lon: 110.0, lat: 28.1 }, { lon: 110.4, lat: 28.7 }, { lon: 111.1, lat: 29.1 }, { lon: 112.2, lat: 29.2 }] },
+  { name: '沅水', width: 0.07, terminal: { kind: 'lake', target: '洞庭湖' }, points: [{ lon: 109.8, lat: 27.4 }, { lon: 110.0, lat: 28.1 }, { lon: 110.4, lat: 28.7 }, { lon: 111.1, lat: 29.1 }, { lon: 112.2, lat: 29.2 }] },
+  { name: '洞庭湖出水道', width: 0.08, terminal: { kind: 'river', target: '长江', point: { lon: 113.25, lat: 30.47 } }, source: { kind: 'lake', name: '洞庭湖' }, points: [{ lon: 113.1, lat: 29.7 }, { lon: 113.25, lat: 30.05 }, { lon: 113.25, lat: 30.47 }] },
 ]
 
 /** 将河道控制折线按约零点一度加密，只细化采样，不添加无史料依据的横向摆动。 */
@@ -458,20 +467,72 @@ export function findPath(world: World, start: HexTile, end: HexTile, options: Mo
   return null
 }
 
-/** 复核最终地图的河道连续、显式汇流与山道通行，返回可读问题清单。 */
+/** 判断最终地形格是否属于河流、湖泊或近海水域。 */
+function isWaterTerrain(terrain: TerrainId): boolean {
+  return terrain === 'river' || terrain === 'lake' || terrain === 'coast'
+}
+
+/** 复核最终地图的河道终端、河道连续、显式汇流与山道通行，返回可读问题清单。 */
 export function auditConnectivity(world: World): ConnectivityIssue[] {
   const issues: ConnectivityIssue[] = []
   const describe = (before: HexTile, after: HexTile): string => `${before.lon.toFixed(2)},${before.lat.toFixed(2)} → ${after.lon.toFixed(2)},${after.lat.toFixed(2)}`
 
   for (const route of world.rivers) {
-    for (let index = 1; index < route.tileKeys.length; index++) {
-      const before = world.tiles.get(route.tileKeys[index - 1]!)
-      const after = world.tiles.get(route.tileKeys[index]!)
-      if (!before || !after) {
+    if (!route.tileKeys.length) issues.push({ kind: 'river-gap', subject: route.name, detail: '河道记录为空' })
+    for (let index = 0; index < route.tileKeys.length; index++) {
+      const tile = world.tiles.get(route.tileKeys[index]!)
+      if (!tile) {
         issues.push({ kind: 'river-gap', subject: route.name, detail: '河道记录包含未生成的格子' })
         continue
       }
-      if (!isSameOrAdjacent(before, after)) issues.push({ kind: 'river-gap', subject: route.name, detail: `断点 ${describe(before, after)}` })
+      if (!isWaterTerrain(tile.terrain)) issues.push({ kind: 'river-gap', subject: route.name, detail: `河道记录格被覆盖为${tile.terrain}` })
+      if (!index) continue
+      const before = world.tiles.get(route.tileKeys[index - 1]!)
+      if (before && !isSameOrAdjacent(before, tile)) issues.push({ kind: 'river-gap', subject: route.name, detail: `断点 ${describe(before, tile)}` })
+    }
+
+    const terminal = route.terminal
+    const terminalKey = route.tileKeys.at(-1)
+    const terminalTile = terminalKey ? world.tiles.get(terminalKey) : undefined
+    if (terminal.kind === 'pending') {
+      issues.push({ kind: 'river-pending', subject: route.name, detail: terminal.detail })
+    } else if (terminal.kind === 'sea') {
+      const point = geoToPixel(terminal.point.lon, terminal.point.lat)
+      const hex = pixelToHex(point.x, point.y)
+      const expectedKey = hexKey(hex.q, hex.r)
+      if (terminalKey !== expectedKey || !terminalTile || terminalTile.terrain !== 'coast') {
+        issues.push({ kind: 'river-terminal', subject: route.name, detail: '声明入海但终点格未落在指定近海水域' })
+      }
+    } else if (terminal.kind === 'lake') {
+      if (!terminalTile || terminalTile.terrain !== 'lake' || terminalTile.landform !== terminal.target) {
+        issues.push({ kind: 'river-terminal', subject: route.name, detail: `声明入${terminal.target}但末格未落入目标湖泊` })
+      }
+    } else {
+      const target = world.rivers.find((entry) => entry.name === terminal.target)
+      const point = geoToPixel(terminal.point.lon, terminal.point.lat)
+      const hex = pixelToHex(point.x, point.y)
+      const sharedKey = hexKey(hex.q, hex.r)
+      const sharedTile = world.tiles.get(sharedKey)
+      const hasSharedConfluence = world.confluences.some((entry) =>
+        entry.tileKey === sharedKey && entry.rivers.includes(route.name) && entry.rivers.includes(terminal.target),
+      )
+      if (
+        terminalKey !== sharedKey ||
+        !target?.tileKeys.includes(sharedKey) ||
+        !sharedTile ||
+        !isWaterTerrain(sharedTile.terrain) ||
+        !hasSharedConfluence
+      ) {
+        issues.push({ kind: 'river-terminal', subject: route.name, detail: `声明汇入${terminal.target}但未接入共享水道点` })
+      }
+    }
+
+    if (route.source?.kind === 'lake') {
+      const sourceKey = route.tileKeys[0]
+      const sourceTile = sourceKey ? world.tiles.get(sourceKey) : undefined
+      if (!sourceTile || sourceTile.terrain !== 'lake' || sourceTile.landform !== route.source.name) {
+        issues.push({ kind: 'river-terminal', subject: route.name, detail: `源头未落入${route.source.name}` })
+      }
     }
   }
 
@@ -646,7 +707,7 @@ function rasterizeRivers(tiles: Map<string, HexTile>): RiverRoute[] {
         previous = tile
       }
     }
-    routes.push({ name: river.name, tileKeys })
+    routes.push({ name: river.name, terminal: river.terminal, source: river.source, tileKeys })
   }
   return routes
 }

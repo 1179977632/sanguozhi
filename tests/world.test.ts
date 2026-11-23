@@ -1,8 +1,35 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { auditConnectivity, createWorld, findPath, geoToPixel, movementCost, pixelToHex } from '../src/world.ts'
+import { auditConnectivity, createWorld, DIRECTIONS, findPath, geoToPixel, movementCost, pixelToHex, type World } from '../src/world.ts'
 
 const world = createWorld(189)
+
+/** 仅沿河流、湖泊与近海格遍历，判断两个水域位置是否连通。 */
+function waterPathExists(world: World, startKey: string, targetKeys: Set<string>): boolean {
+  const start = world.tiles.get(startKey)
+  if (!start || !isWater(start.terrain)) return false
+  const visited = new Set([startKey])
+  const queue = [start]
+  for (let index = 0; index < queue.length; index++) {
+    const current = queue[index]!
+    const currentKey = `${current.q},${current.r}`
+    if (targetKeys.has(currentKey)) return true
+    for (const [dq, dr] of DIRECTIONS) {
+      const key = `${current.q + dq},${current.r + dr}`
+      if (visited.has(key)) continue
+      const next = world.tiles.get(key)
+      if (!next || !isWater(next.terrain)) continue
+      visited.add(key)
+      queue.push(next)
+    }
+  }
+  return false
+}
+
+/** 判断地形是否属于可航行的最终水域。 */
+function isWater(terrain: string): boolean {
+  return terrain === 'river' || terrain === 'lake' || terrain === 'coast'
+}
 
 /**
  * 建安十三年（208）刘表病逝前各城的代表城邑与州、郡国级归属。
@@ -53,6 +80,59 @@ const ADMIN_208: Record<string, readonly [name: string, province: string, prefec
   jiaozhi: ['龍編', '交州', '交趾郡'],
 }
 
+test('已声明河道终端通过最终地图审计并列出黄河淮水待定项', () => {
+  assert.deepEqual(auditConnectivity(world), [
+    { kind: 'river-pending', subject: '黄河', detail: '预期入海，下游示意走廊待确认' },
+    { kind: 'river-pending', subject: '淮水', detail: '预期入海，下游示意走廊待确认' },
+  ])
+})
+
+test('连通审计检测河口终端被陆地覆盖', () => {
+  const yangtze = world.rivers.find((route) => route.name === '长江')
+  assert.ok(yangtze, '缺少长江河道')
+  const terminalKey = yangtze.tileKeys.at(-1)!
+  const terminalTile = world.tiles.get(terminalKey)
+  assert.ok(terminalTile, '长江末格缺失')
+  const brokenWorld: World = { ...world, tiles: new Map(world.tiles) }
+  brokenWorld.tiles.set(terminalKey, { ...terminalTile, terrain: 'plain' })
+  assert.ok(
+    auditConnectivity(brokenWorld).some((issue) => issue.kind === 'river-terminal' && issue.subject === '长江'),
+    '长江末格被覆盖后仍未报告终端错误',
+  )
+})
+
+test('长江珠江入海且洞庭湖出水道接入长江', () => {
+  const yangtze = world.rivers.find((route) => route.name === '长江')
+  const pearl = world.rivers.find((route) => route.name === '珠江')
+  const outlet = world.rivers.find((route) => route.name === '洞庭湖出水道')
+  assert.ok(yangtze && pearl && outlet, '缺少预期的入海河道或洞庭湖出水道')
+
+  for (const route of [yangtze, pearl]) {
+    const last = world.tiles.get(route.tileKeys.at(-1)!)
+    assert.equal(last?.terrain, 'coast', `${route.name}末格未接入近海`)
+    const coastKeys = new Set([...world.tiles].filter(([, tile]) => tile.terrain === 'coast').map(([key]) => key))
+    assert.ok(waterPathExists(world, route.tileKeys[0]!, coastKeys), `${route.name}未通过纯水域连到近海`)
+  }
+
+  const source = world.tiles.get(outlet.tileKeys[0]!)
+  const destination = outlet.tileKeys.at(-1)!
+  assert.equal(source?.terrain, 'lake', '洞庭湖出水道未始于湖泊水域')
+  assert.equal(source?.landform, '洞庭湖', '洞庭湖出水道源头不属于洞庭湖')
+  assert.ok(yangtze.tileKeys.includes(destination), '洞庭湖出水道末格未与长江共享')
+  assert.ok(waterPathExists(world, outlet.tileKeys[0]!, new Set(yangtze.tileKeys)), '洞庭湖未通过纯水域连到长江')
+  assert.ok(world.confluences.some((entry) => entry.tileKey === destination && entry.rivers.includes('洞庭湖出水道') && entry.rivers.includes('长江')), '洞庭湖出口缺少与长江共享的显式汇流点')
+})
+
+test('洞庭湖与鄱阳湖支流保持纯水域通江', () => {
+  const yangtze = world.rivers.find((route) => route.name === '长江')
+  assert.ok(yangtze, '缺少长江河道')
+  for (const name of ['湘水', '沅水', '赣水']) {
+    const route = world.rivers.find((entry) => entry.name === name)
+    assert.ok(route, `缺少${name}河道`)
+    assert.ok(waterPathExists(world, route.tileKeys.at(-1)!, new Set(yangtze.tileKeys)), `${name}未通过湖泊水域连到长江`)
+  }
+})
+
 test('城池均为完整七格且互不重叠', () => {
   assert.equal(world.cities.length, 40)
   const used = new Set<string>()
@@ -82,7 +162,10 @@ test('城池稳定ID与208年州郡归属保持锁定', () => {
 })
 
 test('河网连续且显式汇流点同时属于双方河道', () => {
-  assert.deepEqual(auditConnectivity(world), [])
+  assert.deepEqual(
+    auditConnectivity(world).filter((issue) => issue.kind !== 'river-pending'),
+    [],
+  )
   assert.ok(world.confluences.length >= 5, '汇流点数量少于河道折线中的共享顶点')
   /** 判断两条河是否在共享控制点处显式汇流。 */
   const joins = (first: string, second: string): boolean =>
