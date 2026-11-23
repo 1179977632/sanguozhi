@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "test": "tsx --test tests/world.test.ts",
+    "test": "tsx --test tests/world.test.ts tests/map-interaction.test.ts",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

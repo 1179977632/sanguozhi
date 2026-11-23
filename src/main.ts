@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { createIcons, ArrowDownUp, ArrowLeft, ArrowRight, ChevronsDown, Compass, Expand, LocateFixed, Minus, Mountain, MousePointer2, Plus, RotateCcw, Search, Ship, Sparkles, X, ZoomIn, ZoomOut } from 'lucide'
 import type { City, FactionId, HexTile, MovementOptions } from './world'
 import { createWorld, DIRECTIONS, FACTIONS, HEX_SIZE, LAKES, MOUNTAIN_RANGES, TERRAIN, findPath, geoToPixel, hexKey, hexToPixel, movementCost, pixelToHex } from './world'
+import { advanceGesture, clampZoom, fitZoom, startGesture, type PointerGesture } from './map-interaction'
 import './style.css'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -19,15 +20,19 @@ app.innerHTML = `
         <button type="button" data-nav-filter="cities">列郡城邑</button>
       </nav>
       <div class="era-label">建安十三年（208）· 劉表病逝前</div>
-      <button id="mobile-details" class="mobile-details" type="button" aria-label="打开地形和行军详情" aria-expanded="false">地形與行軍</button>
+      <div class="mobile-actions">
+        <button id="mobile-search" class="mobile-panel-toggle" type="button" aria-controls="city-panel" aria-expanded="false">搜索城池</button>
+        <button id="mobile-details" class="mobile-panel-toggle" type="button" aria-controls="details-panel" aria-expanded="false">地形与行军</button>
+      </div>
     </header>
     <div class="workspace">
-      <aside class="left-rail" aria-label="城池检索">
+      <aside id="city-panel" class="left-rail" aria-label="城池检索">
         <div class="rail-head">
+          <div class="mobile-search-head"><span>城池检索</span><button id="mobile-search-close" class="mobile-close" type="button" aria-label="关闭城池搜索"><i data-lucide="x"></i></button></div>
           <div class="eyebrow">REALMS OF HAN</div>
           <div class="rail-heading"><h2>州郡城邑</h2><span id="city-count"></span></div>
         </div>
-        <label class="search-wrap"><i data-lucide="search"></i><input id="city-search" type="search" placeholder="尋找城池、州郡…" autocomplete="off" /></label>
+        <label class="search-wrap"><i data-lucide="search"></i><input id="city-search" type="search" aria-label="搜索城池或州郡" placeholder="寻找城池、州郡…" autocomplete="off" /></label>
         <select id="faction-filter" class="faction-select" aria-label="按势力筛选">
           <option value="all">全部勢力</option><option value="cao">曹操</option><option value="liubiao">劉表</option><option value="sun">孫權</option><option value="liuzhang">劉璋</option><option value="zhanglu">張魯</option><option value="shixie">士燮</option><option value="local">地方/待考</option>
         </select>
@@ -62,9 +67,9 @@ app.innerHTML = `
         </div></div>
       </section>
 
-      <aside class="right-rail" aria-label="地形和行军详情">
+      <aside id="details-panel" class="right-rail" aria-label="地形和行军详情">
         <section class="detail-section">
-          <div class="detail-head"><h3>城邑誌</h3><button id="mobile-close" class="mobile-close" aria-label="关闭详情"><i data-lucide="x"></i></button><span class="detail-index">01 / 03</span></div>
+          <div class="detail-head"><h3>城邑誌</h3><button id="mobile-close" class="mobile-close" type="button" aria-label="关闭详情"><i data-lucide="x"></i></button><span class="detail-index">01 / 03</span></div>
           <div id="inspector" class="inspector"></div>
         </section>
         <section class="detail-section">
@@ -118,6 +123,15 @@ const provinceByTile = new Map(Array.from(world.tiles, ([key, tile]) => {
   const nearest = world.cities.reduce((closest, city) => Math.hypot(tile.x - hexToPixel(city.q, city.r).x, tile.y - hexToPixel(city.q, city.r).y) < Math.hypot(tile.x - hexToPixel(closest.q, closest.r).x, tile.y - hexToPixel(closest.q, closest.r).y) ? city : closest)
   return [key, nearest.province] as const
 }))
+const worldBounds = (() => {
+  const tiles = Array.from(world.tiles.values())
+  return {
+    left: Math.min(...tiles.map((tile) => tile.x)) - HEX_SIZE,
+    right: Math.max(...tiles.map((tile) => tile.x)) + HEX_SIZE,
+    top: Math.min(...tiles.map((tile) => tile.y)) - HEX_SIZE,
+    bottom: Math.max(...tiles.map((tile) => tile.y)) + HEX_SIZE,
+  }
+})()
 let phaserGame: Phaser.Game | undefined
 
 const state = {
@@ -127,9 +141,7 @@ const state = {
   panY: 0,
   zoom: 0.55,
   dirty: true,
-  dragging: false,
-  dragMoved: false,
-  previousPointer: { x: 0, y: 0 },
+  gesture: null as PointerGesture | null,
   hoveredKey: '',
   route: [] as HexTile[],
   routeCost: 0,
@@ -148,9 +160,54 @@ const state = {
 }
 
 const dpr = Math.min(window.devicePixelRatio || 1, 2)
+const mobileViewport = window.matchMedia('(max-width: 820px)')
+const cityPanelElement = document.querySelector<HTMLElement>('#city-panel')!
+const detailsPanelElement = document.querySelector<HTMLElement>('#details-panel')!
+const mobileSearchButton = document.querySelector<HTMLButtonElement>('#mobile-search')!
+const mobileDetailsButton = document.querySelector<HTMLButtonElement>('#mobile-details')!
+let mobilePanel: 'search' | 'details' | null = null
 let resizeObserver: ResizeObserver | undefined
 let viewportWidth = 0
 let viewportHeight = 0
+
+/** 同步移动端抽屉可见性、可访问性和焦点。 */
+function setMobilePanel(panel: 'search' | 'details' | null, moveFocus = true): void {
+  const previousPanel = mobilePanel
+  mobilePanel = mobileViewport.matches ? panel : null
+  document.body.classList.toggle('search-open', mobilePanel === 'search')
+  document.body.classList.toggle('details-open', mobilePanel === 'details')
+  mobileSearchButton.setAttribute('aria-expanded', String(mobilePanel === 'search'))
+  mobileDetailsButton.setAttribute('aria-expanded', String(mobilePanel === 'details'))
+  const searchHidden = mobileViewport.matches && mobilePanel !== 'search'
+  const detailsHidden = mobileViewport.matches && mobilePanel !== 'details'
+  cityPanelElement.inert = searchHidden
+  detailsPanelElement.inert = detailsHidden
+  cityPanelElement.setAttribute('aria-hidden', String(searchHidden))
+  detailsPanelElement.setAttribute('aria-hidden', String(detailsHidden))
+  if (!moveFocus) return
+  if (mobilePanel === 'search') citySearchInput.focus()
+  else if (mobilePanel === 'details') document.querySelector<HTMLButtonElement>('#mobile-close')!.focus()
+  else if (previousPanel) {
+    if (mobileViewport.matches) (previousPanel === 'search' ? mobileSearchButton : mobileDetailsButton).focus()
+    else mapCanvas.focus()
+  }
+}
+
+/** 在响应式断点变化时关闭移动抽屉并将焦点移出隐藏控件。 */
+function handleMobileBreakpointChange(): void {
+  const active = document.activeElement
+  const focusWasInSearch = cityPanelElement.contains(active)
+  const focusWasInDetails = detailsPanelElement.contains(active)
+  const focusWasInHiddenNavigation = active instanceof HTMLElement && active.closest('.topnav') !== null
+  setMobilePanel(null, false)
+  if (!mobileViewport.matches && active instanceof HTMLElement && (active.classList.contains('mobile-close') || mobileSearchButton.contains(active) || mobileDetailsButton.contains(active))) {
+    mapCanvas.focus()
+  } else if (mobileViewport.matches && (focusWasInSearch || focusWasInHiddenNavigation)) {
+    mobileSearchButton.focus()
+  } else if (mobileViewport.matches && focusWasInDetails) {
+    mobileDetailsButton.focus()
+  }
+}
 
 /** 初始化 Phaser 计时与战场贴图，并启动视图自适应。 */
 function bootAtlas(): void {
@@ -172,6 +229,8 @@ function bootAtlas(): void {
   resizeObserver.observe(mapCanvas.parentElement!)
   window.addEventListener('resize', resizeMap)
   window.addEventListener('keydown', handleKeyboard)
+  mobileViewport.addEventListener('change', handleMobileBreakpointChange)
+  setMobilePanel(null, false)
   resizeMap()
   initializeControls()
   renderCityList()
@@ -181,11 +240,20 @@ function bootAtlas(): void {
   })
 }
 
-/** 调整地图分辨率并在窗口变化时保持当前地图中心。 */
+/** 根据当前视口计算与全图总览一致的最小缩放比例。 */
+function minimumZoomForViewport(width: number, height: number): number {
+  return fitZoom(Math.floor(width), Math.floor(height), worldBounds.right - worldBounds.left, worldBounds.bottom - worldBounds.top)
+}
+
+/** 调整地图分辨率，并在视口变化时维持总览或当前地图中心。 */
 function resizeMap(): void {
   const bounds = mapCanvas.parentElement!.getBoundingClientRect()
   const width = Math.max(1, Math.floor(bounds.width))
   const height = Math.max(1, Math.floor(bounds.height))
+  const oldCenterX = viewportWidth ? (viewportWidth / 2 - state.panX) / state.zoom : 0
+  const oldCenterY = viewportHeight ? (viewportHeight / 2 - state.panY) / state.zoom : 0
+  const wasOverview = state.positionReady && viewportWidth > 0 &&
+    Math.abs(state.zoom - minimumZoomForViewport(viewportWidth, viewportHeight)) < 1e-6
   const resolutionWidth = Math.floor(width * dpr)
   const resolutionHeight = Math.floor(height * dpr)
   if (mapCanvas.width !== resolutionWidth || mapCanvas.height !== resolutionHeight) {
@@ -197,13 +265,15 @@ function resizeMap(): void {
   }
   mapCanvas.style.width = `${width}px`
   mapCanvas.style.height = `${height}px`
-  if (!state.positionReady) focusCity(initialCity, 4.8)
-  else {
-    state.panX += (width - viewportWidth) / 2
-    state.panY += (height - viewportHeight) / 2
-  }
   viewportWidth = width
   viewportHeight = height
+  if (!state.positionReady) focusCity(initialCity, 4.8)
+  else if (wasOverview) fitMap()
+  else {
+    state.zoom = clampZoom(state.zoom, minimumZoomForViewport(width, height))
+    state.panX = width / 2 - oldCenterX * state.zoom
+    state.panY = height / 2 - oldCenterY * state.zoom
+  }
   scheduleMap()
 }
 
@@ -211,7 +281,7 @@ function resizeMap(): void {
 function focusCity(city: City, zoom: number): void {
   const bounds = mapCanvas.parentElement!.getBoundingClientRect()
   const center = hexToPixel(city.q, city.r)
-  state.zoom = Phaser.Math.Clamp(zoom, 0.38, 7)
+  state.zoom = clampZoom(zoom, minimumZoomForViewport(bounds.width, bounds.height))
   state.panX = bounds.width / 2 - center.x * state.zoom
   state.panY = bounds.height / 2 - center.y * state.zoom
   state.positionReady = true
@@ -222,12 +292,8 @@ function focusCity(city: City, zoom: number): void {
 /** 将所有可行地块纳入视口，并为标题和工具栏留白。 */
 function fitMap(): void {
   const bounds = mapCanvas.parentElement!.getBoundingClientRect()
-  const tiles = Array.from(world.tiles.values())
-  const left = Math.min(...tiles.map((tile) => tile.x)) - HEX_SIZE
-  const right = Math.max(...tiles.map((tile) => tile.x)) + HEX_SIZE
-  const top = Math.min(...tiles.map((tile) => tile.y)) - HEX_SIZE
-  const bottom = Math.max(...tiles.map((tile) => tile.y)) + HEX_SIZE
-  state.zoom = Phaser.Math.Clamp(Math.min(Math.max(80, bounds.width - 60) / (right - left), Math.max(80, bounds.height - 155) / (bottom - top)), 0.2, 1.2)
+  const { left, right, top, bottom } = worldBounds
+  state.zoom = minimumZoomForViewport(bounds.width, bounds.height)
   state.panX = bounds.width / 2 - (left + right) / 2 * state.zoom
   state.panY = 75 + (bounds.height - 155) / 2 - (top + bottom) / 2 * state.zoom
   state.positionReady = true
@@ -614,9 +680,72 @@ function pointerWorld(clientX: number, clientY: number): { x: number; y: number 
   return { x: (clientX - bounds.left - state.panX) / state.zoom, y: (clientY - bounds.top - state.panY) / state.zoom }
 }
 
+/** 根据当前指针事件更新地图平移并记录累计手势距离。 */
+function advanceMapPointer(event: PointerEvent): boolean {
+  const gesture = state.gesture
+  if (!gesture) return false
+  const update = advanceGesture(gesture, event.pointerId, event.clientX, event.clientY)
+  if (!update) return false
+  state.gesture = update.gesture
+  state.panX += update.dx
+  state.panY += update.dy
+  return true
+}
+
+/** 开始主指针的地图拖动手势并捕获指针。 */
+function handleMapPointerDown(event: PointerEvent): void {
+  if (!event.isPrimary || event.button !== 0 || state.gesture) return
+  state.gesture = startGesture(event.pointerId, event.clientX, event.clientY)
+  mapCanvas.setPointerCapture(event.pointerId)
+  mapCanvas.style.cursor = 'grabbing'
+}
+
+/** 更新地图悬停信息，并仅响应当前活动指针的拖动。 */
+function handleMapPointerMove(event: PointerEvent): void {
+  if (state.gesture && state.gesture.pointerId !== event.pointerId) return
+  const point = pointerWorld(event.clientX, event.clientY)
+  const cell = pixelToHex(point.x, point.y)
+  state.hoveredKey = hexKey(cell.q, cell.r)
+  const tile = world.tiles.get(state.hoveredKey)
+  if (tile) coordinatesElement.textContent = `北纬 ${Math.round(tile.lat)}°　東經 ${Math.round(tile.lon)}°`
+  const gesture = state.gesture
+  if (gesture?.pointerId === event.pointerId && event.pointerType === 'mouse' && !(event.buttons & 1)) {
+    cancelMapPointer(event.pointerId, true)
+  } else if (advanceMapPointer(event)) {
+    mapCanvas.style.cursor = 'grabbing'
+  } else if (!state.gesture) {
+    mapCanvas.style.cursor = world.tiles.has(state.hoveredKey) ? 'pointer' : 'grab'
+  }
+  scheduleMap()
+}
+
+/** 结束活动手势；可选地释放捕获且绝不将取消操作视为点击。 */
+function cancelMapPointer(pointerId: number, releaseCapture = false): void {
+  if (state.gesture?.pointerId !== pointerId) return
+  state.gesture = null
+  mapCanvas.style.cursor = world.tiles.has(state.hoveredKey) ? 'pointer' : 'grab'
+  if (releaseCapture && mapCanvas.hasPointerCapture(pointerId)) mapCanvas.releasePointerCapture(pointerId)
+}
+
+/** 完成最终位移判定、清理手势并仅在轻触时处理地图点击。 */
+function handleMapPointerUp(event: PointerEvent): void {
+  const gesture = state.gesture
+  if (!gesture || gesture.pointerId !== event.pointerId) return
+  advanceMapPointer(event)
+  const isClick = !state.gesture!.dragged && event.button === 0
+  cancelMapPointer(event.pointerId, true)
+  scheduleMap()
+  if (isClick) handleMapClick(event)
+}
+
+/** 仅清理匹配指针的已取消或已失去捕获的手势。 */
+function handleMapPointerCancel(event: PointerEvent): void {
+  cancelMapPointer(event.pointerId)
+}
+
 /** 把地图点击映射到相邻真实格并更新侧栏。 */
 function handleMapClick(event: PointerEvent): void {
-  if (state.dragMoved || event.button !== 0) return
+  if (event.button !== 0) return
   const point = pointerWorld(event.clientX, event.clientY)
   const cell = pixelToHex(point.x, point.y)
   const tile = world.tiles.get(hexKey(cell.q, cell.r))
@@ -697,10 +826,7 @@ function selectCity(city: City): void {
   focusCity(city, Math.max(state.zoom, 4.8))
   updateSelection()
   renderCityList()
-  if (window.matchMedia('(max-width: 820px)').matches) {
-    document.body.classList.add('details-open')
-    document.querySelector<HTMLButtonElement>('#mobile-details')!.setAttribute('aria-expanded', 'true')
-  }
+  if (mobileViewport.matches) setMobilePanel('details')
   scheduleMap()
 }
 
@@ -755,34 +881,13 @@ function renderCityList(): void {
     </button>`).join('') || '<p class="city-empty">沒有符合的城池</p>'
 }
 
-/** 绑定地图缩放、拖动、兵种、筛选和图层控制。 */
+/** 绑定地图手势、移动面板、缩放、兵种、筛选和图层控制。 */
 function initializeControls(): void {
-  mapCanvas.addEventListener('pointerdown', (event) => {
-    state.dragging = true
-    state.dragMoved = false
-    state.previousPointer = { x: event.clientX, y: event.clientY }
-    mapCanvas.setPointerCapture(event.pointerId)
-  })
-  mapCanvas.addEventListener('pointermove', (event) => {
-    const point = pointerWorld(event.clientX, event.clientY)
-    const cell = pixelToHex(point.x, point.y)
-    state.hoveredKey = hexKey(cell.q, cell.r)
-    const tile = world.tiles.get(state.hoveredKey)
-    if (tile) coordinatesElement.textContent = `北緯 ${Math.round(tile.lat)}°　東經 ${Math.round(tile.lon)}°`
-    if (state.dragging && (event.buttons & 1)) {
-      const dx = event.clientX - state.previousPointer.x
-      const dy = event.clientY - state.previousPointer.y
-      if (Math.abs(dx) + Math.abs(dy) > 2) state.dragMoved = true
-      state.panX += dx
-      state.panY += dy
-      state.previousPointer = { x: event.clientX, y: event.clientY }
-    }
-    mapCanvas.style.cursor = state.dragging ? 'grabbing' : world.tiles.has(state.hoveredKey) ? 'pointer' : 'grab'
-    scheduleMap()
-  })
-  mapCanvas.addEventListener('pointerup', handleMapClick)
-  mapCanvas.addEventListener('pointercancel', () => { state.dragging = false })
-  mapCanvas.addEventListener('pointerup', () => { state.dragging = false })
+  mapCanvas.addEventListener('pointerdown', handleMapPointerDown)
+  mapCanvas.addEventListener('pointermove', handleMapPointerMove)
+  mapCanvas.addEventListener('pointerup', handleMapPointerUp)
+  mapCanvas.addEventListener('pointercancel', handleMapPointerCancel)
+  mapCanvas.addEventListener('lostpointercapture', handleMapPointerCancel)
   mapCanvas.addEventListener('wheel', (event) => {
     event.preventDefault()
     zoomAt(event.clientX, event.clientY, event.deltaY < 0 ? 1.12 : 0.89)
@@ -822,14 +927,10 @@ function initializeControls(): void {
     zoomAt(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2, 0.83)
   })
   document.querySelector<HTMLButtonElement>('#reset-map')?.addEventListener('click', fitMap)
-  document.querySelector<HTMLButtonElement>('#mobile-details')?.addEventListener('click', () => {
-    const isOpen = document.body.classList.toggle('details-open')
-    document.querySelector<HTMLButtonElement>('#mobile-details')!.setAttribute('aria-expanded', String(isOpen))
-  })
-  document.querySelector<HTMLButtonElement>('#mobile-close')?.addEventListener('click', () => {
-    document.body.classList.remove('details-open')
-    document.querySelector<HTMLButtonElement>('#mobile-details')!.setAttribute('aria-expanded', 'false')
-  })
+  mobileSearchButton.addEventListener('click', () => setMobilePanel(mobilePanel === 'search' ? null : 'search'))
+  mobileDetailsButton.addEventListener('click', () => setMobilePanel(mobilePanel === 'details' ? null : 'details'))
+  document.querySelector<HTMLButtonElement>('#mobile-search-close')?.addEventListener('click', () => setMobilePanel(null))
+  document.querySelector<HTMLButtonElement>('#mobile-close')?.addEventListener('click', () => setMobilePanel(null))
   document.querySelector<HTMLButtonElement>('#locate-city')?.addEventListener('click', () => selectCity(state.city))
   routeButton.addEventListener('click', () => {
     state.pathMode = !state.pathMode
@@ -869,7 +970,7 @@ function zoomAt(clientX: number, clientY: number, factor: number): void {
   const rect = mapCanvas.getBoundingClientRect()
   const x = clientX - rect.left
   const y = clientY - rect.top
-  const nextZoom = Phaser.Math.Clamp(state.zoom * factor, 0.38, 7)
+  const nextZoom = clampZoom(state.zoom * factor, minimumZoomForViewport(rect.width, rect.height))
   const scale = nextZoom / state.zoom
   state.panX = x - (x - state.panX) * scale
   state.panY = y - (y - state.panY) * scale
@@ -878,8 +979,13 @@ function zoomAt(clientX: number, clientY: number, factor: number): void {
   scheduleMap()
 }
 
-/** 支持加减缩放以及 Escape 退出路线规划。 */
+/** 支持键盘缩放、Escape 关闭移动面板或退出路线规划。 */
 function handleKeyboard(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && mobilePanel) {
+    event.preventDefault()
+    setMobilePanel(null)
+    return
+  }
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return
   if (event.key === '+' || event.key === '=') zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.2)
   if (event.key === '-') zoomAt(window.innerWidth / 2, window.innerHeight / 2, 0.83)
