@@ -3,6 +3,7 @@ import { createIcons, ArrowDownUp, ArrowLeft, ArrowRight, ChevronsDown, Compass,
 import type { City, FactionId, HexTile, MovementOptions } from './world'
 import { createWorld, DIRECTIONS, FACTIONS, HEX_SIZE, LAKES, MOUNTAIN_RANGES, TERRAIN, findPath, geoToPixel, hexKey, hexToPixel, movementCost, pixelToHex } from './world'
 import { advanceGesture, clampZoom, fitZoom, startGesture, type PointerGesture } from './map-interaction'
+import { createInitialGameState, dispatchArmy, endTurn, TURN_MOVEMENT_BUDGET, type GameState } from './game-state'
 import './style.css'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -73,16 +74,21 @@ app.innerHTML = `
           <div id="inspector" class="inspector"></div>
         </section>
         <section class="detail-section">
-          <div class="detail-head"><h3>軍勢行軍</h3><span class="detail-index">ROUTE</span></div>
-          <label class="select-label" for="unit-select">行軍編制</label>
+          <div class="detail-head"><h3>军势行军</h3><span class="detail-index">TURN</span></div>
+          <div class="game-turn-row"><span>当前回合</span><strong id="turn-number">第 1 回合</strong></div>
+          <div id="game-status" class="game-status"></div>
+          <button id="end-turn" class="route-cta game-turn-button" type="button">结束回合</button>
+          <label class="select-label" for="unit-select">行军编制</label>
           <select id="unit-select" class="unit-select">
             <option value="infantry">步卒 · 平原通行</option><option value="cavalry">騎兵 · 機動行軍</option><option value="supply">輜重 · 糧車補給</option>
           </select>
           <div class="toggle-row"><span>舟船 · 渡河行水</span><input id="boat-toggle" class="toggle" type="checkbox" /></div>
           <div class="toggle-row"><span>棧道 · 翻越山隘</span><input id="plank-toggle" class="toggle" type="checkbox" /></div>
-          <div id="route-report" class="route-report"><i class="route-dot"></i>尚未規劃行軍路線</div>
-          <button id="route-button" class="route-cta" type="button" aria-pressed="false"><i data-lucide="mouse-pointer-2"></i>規劃行軍路線</button>
-          <button id="clear-route" class="secondary-action" type="button">清除路線</button>
+          <div id="route-report" class="route-report"><i class="route-dot"></i>尚未规划路线</div>
+          <button id="army-plan" class="route-cta" type="button" aria-pressed="false">选择出征目的地</button>
+          <button id="dispatch-army" class="route-cta" type="button" disabled>派遣军队</button>
+          <button id="route-button" class="secondary-action route-preview-button" type="button" aria-pressed="false">自由路线预览</button>
+          <button id="clear-route" class="secondary-action" type="button">清除路线</button>
           <div class="movement-costs"><div><span>平原步卒</span><strong>1 移动力</strong></div><div><span>丘陵步卒</span><strong>2 移动力</strong></div><div><span>河流步卒</span><strong class="danger">須乘舟</strong></div></div>
         </section>
         <section class="detail-section">
@@ -113,6 +119,11 @@ const routeButton = document.querySelector<HTMLButtonElement>('#route-button')!
 const unitSelect = document.querySelector<HTMLSelectElement>('#unit-select')!
 const boatToggle = document.querySelector<HTMLInputElement>('#boat-toggle')!
 const plankToggle = document.querySelector<HTMLInputElement>('#plank-toggle')!
+const armyPlanButton = document.querySelector<HTMLButtonElement>('#army-plan')!
+const dispatchButton = document.querySelector<HTMLButtonElement>('#dispatch-army')!
+const endTurnButton = document.querySelector<HTMLButtonElement>('#end-turn')!
+const gameStatusElement = document.querySelector<HTMLElement>('#game-status')!
+const turnNumberElement = document.querySelector<HTMLElement>('#turn-number')!
 const statusLine = document.querySelector<HTMLElement>('#status-line')!
 const coordinatesElement = document.querySelector<HTMLElement>('#coordinates')!
 const zoomReadout = document.querySelector<HTMLElement>('#zoom-readout')!
@@ -134,6 +145,8 @@ const worldBounds = (() => {
 })()
 let phaserGame: Phaser.Game | undefined
 
+let gameState: GameState = createInitialGameState(world)
+
 const state = {
   city: initialCity,
   selectedTile: world.tiles.get(hexKey(initialCity.q, initialCity.r)) ?? null,
@@ -151,6 +164,8 @@ const state = {
   /** 已提交查询的终点，配置变化时据此重新寻路。 */
   routeTo: null as HexTile | null,
   pathMode: false,
+  armyPlanning: false,
+  pendingDispatch: false,
   terrainFilter: 'all',
   showLabels: true,
   showBorders: false,
@@ -336,6 +351,7 @@ function drawMap(): void {
   drawRoute(context)
   drawCityTerritories(context, visibleTiles)
   drawCities(context, visibleTiles)
+  drawArmyMarker(context)
   drawHover(context)
   context.restore()
   state.dirty = false
@@ -750,6 +766,10 @@ function handleMapClick(event: PointerEvent): void {
   const cell = pixelToHex(point.x, point.y)
   const tile = world.tiles.get(hexKey(cell.q, cell.r))
   if (!tile) return
+  if (state.armyPlanning) {
+    selectArmyDestination(tile)
+    return
+  }
   if (state.pathMode) {
     selectRouteWaypoint(tile)
     return
@@ -805,6 +825,7 @@ function refreshRoute(): void {
   const steps = path.tiles.length - 1
   routeReport.innerHTML = `<span class="route-dot"></span>${steps} 格行程 <strong>${path.cost} 移动力</strong>`
   statusLine.textContent = `路径已规划 · 共 ${steps} 格`
+  dispatchButton.disabled = !state.armyPlanning
   scheduleMap()
 }
 
