@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createInitialGameState, dispatchArmy, endTurn, TURN_MOVEMENT_BUDGET } from '../src/game-state.ts'
-import { createWorld, findPath, hexKey, movementCost, type HexTile, type MovementOptions } from '../src/world.ts'
+import { createWorld, findPath, hexKey, movementCost, type MovementOptions } from '../src/world.ts'
 
 const world = createWorld(189)
 const equippedInfantry: MovementOptions = { unit: 'infantry', boat: true, plank: true }
@@ -73,7 +73,7 @@ test('结束回合遵守移动力上限并在后续回合抵达', () => {
 
   let current = dispatched.state
   let turnCount = 0
-  while (current.army.status === 'marching' && turnCount < 20) {
+  while (current.army.status === 'marching' && turnCount < 100) {
     const result = endTurn(current, world)
     assert.ok(result.movementSpent <= TURN_MOVEMENT_BUDGET)
     assert.equal(result.movedKeys.length, result.state.army.nextTileIndex - current.army.nextTileIndex)

@@ -135,12 +135,21 @@ const provinceByTile = new Map(Array.from(world.tiles, ([key, tile]) => {
   return [key, nearest.province] as const
 }))
 const worldBounds = (() => {
-  const tiles = Array.from(world.tiles.values())
+  let left = Infinity
+  let right = -Infinity
+  let top = Infinity
+  let bottom = -Infinity
+  for (const tile of world.tiles.values()) {
+    left = Math.min(left, tile.x)
+    right = Math.max(right, tile.x)
+    top = Math.min(top, tile.y)
+    bottom = Math.max(bottom, tile.y)
+  }
   return {
-    left: Math.min(...tiles.map((tile) => tile.x)) - HEX_SIZE,
-    right: Math.max(...tiles.map((tile) => tile.x)) + HEX_SIZE,
-    top: Math.min(...tiles.map((tile) => tile.y)) - HEX_SIZE,
-    bottom: Math.max(...tiles.map((tile) => tile.y)) + HEX_SIZE,
+    left: left - HEX_SIZE,
+    right: right + HEX_SIZE,
+    top: top - HEX_SIZE,
+    bottom: bottom + HEX_SIZE,
   }
 })()
 let phaserGame: Phaser.Game | undefined
@@ -349,6 +358,7 @@ function drawMap(): void {
   if (state.showBorders) drawProvinceLines(context, visibleTiles)
   if (state.showSeaLabels) drawSeaLabels(context)
   drawRoute(context)
+  drawMarchingRoute(context)
   drawCityTerritories(context, visibleTiles)
   drawCities(context, visibleTiles)
   drawArmyMarker(context)
@@ -676,6 +686,52 @@ function drawRoute(context: CanvasRenderingContext2D): void {
   context.restore()
 }
 
+/** 绘制正在执行的军队路线，以实线区别于规划预览。 */
+function drawMarchingRoute(context: CanvasRenderingContext2D): void {
+  if (gameState.army.status !== 'marching') return
+  const remaining = gameState.army.pathKeys.slice(gameState.army.nextTileIndex - 1)
+    .map((key) => world.tiles.get(key))
+    .filter((tile): tile is HexTile => Boolean(tile))
+  if (remaining.length < 2) return
+  context.save()
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  context.lineWidth = 2.5
+  context.strokeStyle = 'rgba(125,55,43,.9)'
+  context.beginPath()
+  remaining.forEach((tile, index) => {
+    const { x, y } = hexToPixel(tile.q, tile.r)
+    index ? context.lineTo(x, y) : context.moveTo(x, y)
+  })
+  context.stroke()
+  context.restore()
+}
+
+/** 在地图上标出当前军队位置，与城池标记和地形格分层显示。 */
+function drawArmyMarker(context: CanvasRenderingContext2D): void {
+  const tile = world.tiles.get(gameState.army.positionKey)
+  if (!tile) return
+  const { x, y } = hexToPixel(tile.q, tile.r)
+  context.save()
+  context.beginPath()
+  context.arc(x, y, HEX_SIZE * 0.55, 0, Math.PI * 2)
+  context.fillStyle = '#f5efdc'
+  context.fill()
+  context.strokeStyle = '#7f352c'
+  context.lineWidth = HEX_SIZE * 0.15
+  context.stroke()
+  context.beginPath()
+  context.arc(x, y, HEX_SIZE * 0.34, 0, Math.PI * 2)
+  context.fillStyle = '#a14a3a'
+  context.fill()
+  context.fillStyle = '#fff8e8'
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.font = `700 ${HEX_SIZE * 0.36}px "Noto Sans SC", sans-serif`
+  context.fillText('军', x, y)
+  context.restore()
+}
+
 /** 高亮鼠标悬停或正在查看的地图格。 */
 function drawHover(context: CanvasRenderingContext2D): void {
   const tile = world.tiles.get(state.hoveredKey) ?? state.selectedTile
@@ -805,6 +861,20 @@ function selectRouteWaypoint(tile: HexTile): void {
   refreshRoute()
 }
 
+/** 以军队当前位置为起点选择并预览出征目的地。 */
+function selectArmyDestination(tile: HexTile): void {
+  const position = world.tiles.get(gameState.army.positionKey)
+  if (!position) return
+  state.routeFrom = position
+  state.routeTo = tile
+  state.routeStart = null
+  state.armyPlanning = false
+  state.pendingDispatch = true
+  armyPlanButton.setAttribute('aria-pressed', 'false')
+  armyPlanButton.textContent = '重新选择目的地'
+  refreshRoute()
+}
+
 /** 按当前行军配置重算已提交路线；无路时清空旧线但保留起终点，便于恢复装备后自动重算。 */
 function refreshRoute(): void {
   if (!state.routeFrom || !state.routeTo) return
@@ -812,10 +882,11 @@ function refreshRoute(): void {
   const end = world.tiles.get(hexKey(state.routeTo.q, state.routeTo.r))
   if (!start || !end) return
   const path = findPath(world, start, end, readMovementOptions())
-  if (!path) {
+  if (!path || path.tiles.length < 2) {
     state.route = []
     state.routeCost = 0
-    routeReport.innerHTML = '<span class="route-dot route-dot--danger"></span>此路不通 · 试试舟船或棧道'
+    dispatchButton.disabled = true
+    routeReport.innerHTML = '<span class="route-dot route-dot--danger"></span>此路不通或目的地与当前位置相同'
     statusLine.textContent = '无法到达此处'
     scheduleMap()
     return
@@ -825,14 +896,44 @@ function refreshRoute(): void {
   const steps = path.tiles.length - 1
   routeReport.innerHTML = `<span class="route-dot"></span>${steps} 格行程 <strong>${path.cost} 移动力</strong>`
   statusLine.textContent = `路径已规划 · 共 ${steps} 格`
-  dispatchButton.disabled = !state.armyPlanning
+  dispatchButton.disabled = !state.pendingDispatch
   scheduleMap()
 }
 
 /** 行军配置变化后同步地形详情与已规划路线。 */
 function applyMovementChange(): void {
   updateSelection()
+  if (gameState.army.status === 'marching') {
+    unitSelect.value = gameState.army.movementOptions.unit
+    boatToggle.checked = gameState.army.movementOptions.boat
+    plankToggle.checked = gameState.army.movementOptions.plank
+    syncGameStatus()
+    return
+  }
   refreshRoute()
+}
+
+/** 同步回合、军队位置和行军结果到军势面板。 */
+function syncGameStatus(movementSummary?: string): void {
+  turnNumberElement.textContent = `第 ${gameState.turn} 回合`
+  const position = world.tiles.get(gameState.army.positionKey)
+  const city = position?.cityId ? world.cities.find((entry) => entry.id === position.cityId) : undefined
+  const location = city?.name ?? (position ? `${position.lon.toFixed(1)}°E · ${position.lat.toFixed(1)}°N` : '未知位置')
+  const destination = gameState.army.destinationKey ? world.tiles.get(gameState.army.destinationKey) : undefined
+  const destinationCity = destination?.cityId ? world.cities.find((entry) => entry.id === destination.cityId) : undefined
+  const destinationLabel = destinationCity?.name ?? (destination ? `${destination.lon.toFixed(1)}°E · ${destination.lat.toFixed(1)}°N` : '')
+  const status = gameState.army.status === 'marching'
+    ? `行军中：${location} → ${destinationLabel}`
+    : gameState.army.status === 'arrived'
+      ? `已抵达：${location}`
+      : `待命：${location}`
+  gameStatusElement.innerHTML = `<strong>${status}</strong><span>${movementSummary ?? `每回合最多移动 ${TURN_MOVEMENT_BUDGET} 点`}</span>`
+  endTurnButton.disabled = gameState.army.status !== 'marching'
+  armyPlanButton.disabled = gameState.army.status === 'marching'
+  unitSelect.disabled = gameState.army.status === 'marching'
+  boatToggle.disabled = gameState.army.status === 'marching'
+  plankToggle.disabled = gameState.army.status === 'marching'
+  dispatchButton.disabled = !state.pendingDispatch || state.route.length < 2 || gameState.army.status === 'marching'
 }
 
 /** 从界面读取步兵、骑兵、辎重及工具选项。 */
@@ -953,17 +1054,75 @@ function initializeControls(): void {
   document.querySelector<HTMLButtonElement>('#mobile-search-close')?.addEventListener('click', () => setMobilePanel(null))
   document.querySelector<HTMLButtonElement>('#mobile-close')?.addEventListener('click', () => setMobilePanel(null))
   document.querySelector<HTMLButtonElement>('#locate-city')?.addEventListener('click', () => selectCity(state.city))
+  armyPlanButton.addEventListener('click', () => {
+    if (gameState.army.status === 'marching') return
+    state.armyPlanning = !state.armyPlanning
+    state.pendingDispatch = false
+    state.pathMode = false
+    state.routeStart = null
+    state.routeFrom = null
+    state.routeTo = null
+    state.route = []
+    state.routeCost = 0
+    armyPlanButton.setAttribute('aria-pressed', String(state.armyPlanning))
+    armyPlanButton.textContent = state.armyPlanning ? '点击地图选择目的地' : '选择出征目的地'
+    routeButton.classList.remove('tool-button--active')
+    routeButton.setAttribute('aria-pressed', 'false')
+    routeReport.innerHTML = '<span class="route-dot"></span>尚未规划路线'
+    statusLine.textContent = state.armyPlanning ? '选择地图上的行军目的地' : '浏览模式'
+    syncGameStatus()
+    scheduleMap()
+  })
+  dispatchButton.addEventListener('click', () => {
+    if (!state.routeTo || !state.pendingDispatch) return
+    const result = dispatchArmy(gameState, world, hexKey(state.routeTo.q, state.routeTo.r), readMovementOptions())
+    if (!result.ok) {
+      routeReport.innerHTML = '<span class="route-dot route-dot--danger"></span>派遣失败：请重新选择可达目的地'
+      return
+    }
+    gameState = result.state
+    state.route = []
+    state.routeCost = 0
+    state.routeStart = null
+    state.routeFrom = null
+    state.routeTo = null
+    state.pendingDispatch = false
+    armyPlanButton.textContent = '选择出征目的地'
+    routeReport.innerHTML = `<span class="route-dot"></span>军队已出发 · 目标 ${gameState.army.destinationKey}`
+    statusLine.textContent = '军队已出发'
+    syncGameStatus()
+    scheduleMap()
+  })
+  endTurnButton.addEventListener('click', () => {
+    const result = endTurn(gameState, world)
+    gameState = result.state
+    const position = world.tiles.get(gameState.army.positionKey)
+    const city = position?.cityId ? world.cities.find((entry) => entry.id === position.cityId) : undefined
+    const location = city?.name ?? (position ? `${position.lon.toFixed(1)}°E · ${position.lat.toFixed(1)}°N` : '未知位置')
+    const summary = result.arrived
+      ? `本回合移动 ${result.movementSpent} 点 · 已到达目的地`
+      : `本回合移动 ${result.movementSpent} 点 · ${result.movedKeys.length} 格 · 当前 ${location}`
+    routeReport.innerHTML = `<span class="route-dot"></span>${summary}`
+    statusLine.textContent = result.arrived ? `行军抵达 · ${location}` : `第 ${gameState.turn} 回合 · 行军推进 ${result.movedKeys.length} 格`
+    syncGameStatus(summary)
+    scheduleMap()
+  })
   routeButton.addEventListener('click', () => {
     state.pathMode = !state.pathMode
+    state.armyPlanning = false
+    state.pendingDispatch = false
     state.routeStart = null
     state.route = []
     state.routeCost = 0
     state.routeFrom = null
     state.routeTo = null
+    armyPlanButton.setAttribute('aria-pressed', 'false')
+    armyPlanButton.textContent = '选择出征目的地'
     routeButton.classList.toggle('tool-button--active', state.pathMode)
     routeButton.setAttribute('aria-pressed', String(state.pathMode))
     statusLine.textContent = state.pathMode ? '选取起点，再选取目的地' : '浏览模式'
     routeReport.innerHTML = state.pathMode ? '<span class="route-dot"></span>点击地图选取行军起点' : '<span class="route-dot"></span>尚未规划行军路线'
+    syncGameStatus()
     scheduleMap()
   })
   document.querySelector<HTMLButtonElement>('#clear-route')?.addEventListener('click', () => {
@@ -973,10 +1132,15 @@ function initializeControls(): void {
     state.routeFrom = null
     state.routeTo = null
     state.pathMode = false
+    state.armyPlanning = false
+    state.pendingDispatch = false
+    armyPlanButton.setAttribute('aria-pressed', 'false')
+    armyPlanButton.textContent = '选择出征目的地'
     routeButton.classList.remove('tool-button--active')
     routeButton.setAttribute('aria-pressed', 'false')
-    routeReport.innerHTML = '<span class="route-dot"></span>尚未规划行军路线'
+    routeReport.innerHTML = '<span class="route-dot"></span>尚未规划路线'
     statusLine.textContent = '浏览模式'
+    syncGameStatus()
     scheduleMap()
   })
   document.querySelectorAll<HTMLInputElement>('[data-layer]').forEach((input) => input.addEventListener('change', () => {
@@ -984,6 +1148,7 @@ function initializeControls(): void {
     state[key] = input.checked
     scheduleMap()
   }))
+  syncGameStatus()
 }
 
 /** 以鼠标位置为锚点平滑放大或縮小地图。 */
@@ -1010,17 +1175,22 @@ function handleKeyboard(event: KeyboardEvent): void {
   if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return
   if (event.key === '+' || event.key === '=') zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.2)
   if (event.key === '-') zoomAt(window.innerWidth / 2, window.innerHeight / 2, 0.83)
-  if (event.key === 'Escape' && state.pathMode) {
+  if (event.key === 'Escape' && (state.pathMode || state.armyPlanning || state.pendingDispatch)) {
     state.pathMode = false
+    state.armyPlanning = false
+    state.pendingDispatch = false
     state.routeStart = null
     state.route = []
     state.routeCost = 0
     state.routeFrom = null
     state.routeTo = null
+    armyPlanButton.setAttribute('aria-pressed', 'false')
+    armyPlanButton.textContent = '选择出征目的地'
     routeButton.classList.remove('tool-button--active')
     routeButton.setAttribute('aria-pressed', 'false')
-    routeReport.innerHTML = '<span class="route-dot"></span>尚未规划行军路线'
+    routeReport.innerHTML = '<span class="route-dot"></span>尚未规划路线'
     statusLine.textContent = '浏览模式'
+    syncGameStatus()
     scheduleMap()
   }
   if (event.key.toLowerCase() === 'r') {
