@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createInitialGameState, dispatchArmy, endTurn, TURN_MOVEMENT_BUDGET } from '../src/game-state.ts'
-import { createWorld, findPath, hexKey, movementCost, type MovementOptions } from '../src/world.ts'
+import { createWorld, findPath, hexKey, movementCost, type HexTile, type MovementOptions, type TerrainId, type World } from '../src/world.ts'
 
 const world = createWorld(189)
 const equippedInfantry: MovementOptions = { unit: 'infantry', boat: true, plank: true }
@@ -16,6 +16,20 @@ function findLongDestination(): string {
   })
   assert.ok(city, '地图中应存在多回合可达的城池')
   return hexKey(city.q, city.r)
+}
+
+/** 构造只有一条通路的地形走廊，精确验证阻断和逐格消耗。 */
+function createCorridor(terrains: TerrainId[]): World {
+  const chengdu = world.cities.find((city) => city.id === 'chengdu')!
+  const origin = world.tiles.get(hexKey(chengdu.q, chengdu.r))!
+  const tiles = terrains.map((terrain, index): HexTile => ({
+    ...origin,
+    q: origin.q + index,
+    terrain,
+    cityId: index === 0 ? chengdu.id : undefined,
+    cityCenter: index === 0,
+  }))
+  return { ...world, tiles: new Map(tiles.map((tile) => [hexKey(tile.q, tile.r), tile])), cities: [chengdu] }
 }
 
 test('初始军队位于成都且回合从一开始', () => {
@@ -52,6 +66,65 @@ test('未知地点、原地派遣和不可通行目的地均拒绝命令', () =>
     { ok: false, reason: 'unreachable' },
   )
   assert.equal(state.army.status, 'ready')
+})
+
+test('途中河流阻断陆路且配备舟船后才能派遣', () => {
+  const corridor = createCorridor(['plain', 'river', 'plain'])
+  const initial = createInitialGameState(corridor)
+  const destination = [...corridor.tiles.values()].at(-1)!
+  const destinationKey = hexKey(destination.q, destination.r)
+  assert.deepEqual(dispatchArmy(initial, corridor, destinationKey, initial.army.movementOptions), {
+    ok: false,
+    reason: 'unreachable',
+  })
+  const options: MovementOptions = { unit: 'infantry', boat: true, plank: false }
+  const dispatched = dispatchArmy(initial, corridor, destinationKey, options)
+  assert.equal(dispatched.ok, true)
+  if (!dispatched.ok) return
+  options.boat = false
+  assert.equal(dispatched.state.army.movementOptions.boat, true, '派遣后配置应与外部对象隔离')
+  assert.equal(endTurn(dispatched.state, corridor).arrived, true)
+})
+
+test('混合地形逐格扣点且未用完的移动力不结转', () => {
+  const corridor = createCorridor(['plain', 'hill', 'hill', 'mountain', 'mountain', 'plain'])
+  const initial = createInitialGameState(corridor)
+  const keys = [...corridor.tiles.keys()]
+  const dispatched = dispatchArmy(initial, corridor, keys.at(-1)!, equippedInfantry)
+  assert.equal(dispatched.ok, true)
+  if (!dispatched.ok) return
+  const originalState = structuredClone(dispatched.state)
+  const first = endTurn(dispatched.state, corridor)
+  assert.deepEqual(dispatched.state, originalState, '推进回合不应改写上一回合状态')
+  assert.equal(first.movementSpent, 4)
+  assert.deepEqual(first.movedKeys, keys.slice(1, 3))
+  assert.equal(first.state.army.positionKey, keys[2])
+  assert.equal(first.state.army.nextTileIndex, 3)
+  const second = endTurn(first.state, corridor)
+  assert.equal(second.movementSpent, 6)
+  assert.deepEqual(second.movedKeys, keys.slice(3, 5))
+  assert.equal(second.arrived, false, '首回合余下的两点不能带入下一回合')
+  const third = endTurn(second.state, corridor)
+  assert.equal(third.movementSpent, 1)
+  assert.equal(third.arrived, true)
+  assert.equal(third.state.army.positionKey, keys.at(-1))
+})
+
+test('抵达后可从军队当前位置派遣下一条路线', () => {
+  const corridor = createCorridor(['plain', 'plain', 'plain'])
+  const initial = createInitialGameState(corridor)
+  const keys = [...corridor.tiles.keys()]
+  const dispatched = dispatchArmy(initial, corridor, keys.at(-1)!, initial.army.movementOptions)
+  assert.equal(dispatched.ok, true)
+  if (!dispatched.ok) return
+  const arrived = endTurn(dispatched.state, corridor)
+  const returning = dispatchArmy(arrived.state, corridor, initial.army.positionKey, initial.army.movementOptions)
+  assert.equal(returning.ok, true)
+  if (!returning.ok) return
+  assert.equal(returning.state.army.pathKeys[0], keys.at(-1))
+  assert.equal(returning.state.army.nextTileIndex, 1)
+  assert.equal(returning.state.turn, arrived.state.turn)
+  assert.equal(endTurn(returning.state, corridor).state.army.positionKey, initial.army.positionKey)
 })
 
 test('行军中的军队不能接受重复派遣', () => {
@@ -119,7 +192,7 @@ test('移动力不足以进入下一格时保留待走格供下一回合使用',
 
 test('行军过程不改写地图或城池原有势力标签', () => {
   const cityFactions = world.cities.map((city) => [city.id, city.faction])
-  const tiles = [...world.tiles.entries()]
+  const tiles = [...world.tiles].map(([key, tile]) => [key, { ...tile }])
   const dispatched = dispatchArmy(createInitialGameState(world), world, findLongDestination(), equippedInfantry)
   assert.equal(dispatched.ok, true)
   if (!dispatched.ok) return
