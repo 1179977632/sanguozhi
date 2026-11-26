@@ -3,13 +3,33 @@ import { createIcons, ArrowDownUp, ArrowLeft, ArrowRight, ChevronsDown, Compass,
 import type { City, FactionId, HexTile, MovementOptions } from './world'
 import { createWorld, DIRECTIONS, FACTIONS, HEX_SIZE, LAKES, MOUNTAIN_RANGES, TERRAIN, findPath, geoToPixel, hexKey, hexToPixel, movementCost, pixelToHex } from './world'
 import { advanceGesture, clampZoom, fitZoom, startGesture, type PointerGesture } from './map-interaction'
-import { createInitialGameState, dispatchArmy, endTurn, TURN_MOVEMENT_BUDGET, type GameState } from './game-state'
+import { createInitialGameState, dispatchArmy, endTurn, FACTION_START_CITY, TURN_MOVEMENT_BUDGET, type GameState } from './game-state'
 import './style.css'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
+const FACTION_START_LABELS: Record<FactionId, string> = {
+  cao: '許縣',
+  liubiao: '襄陽',
+  sun: '秣陵',
+  liuzhang: '成都',
+  zhanglu: '南鄭',
+  shixie: '龍編',
+  local: '下辨',
+}
 
 app.innerHTML = `
   <main class="atlas">
+    <section id="faction-start" class="start-screen" role="dialog" aria-modal="true" aria-labelledby="start-title">
+      <div class="start-panel">
+        <div class="start-seal">漢</div>
+        <p id="start-message" class="start-kicker">建安十三年 · 群雄並起</p>
+        <h1 id="start-title">擇一方勢力<br />以定天下</h1>
+        <p class="start-copy">選擇起兵之處。麾下初有一萬兵，城池歸屬將隨戰局更迭。</p>
+        <div class="faction-choices" role="group" aria-label="選擇開局勢力">
+          ${Object.entries(FACTIONS).map(([id, faction]) => `<button class="faction-choice" type="button" data-start-faction="${id}"><i class="faction-dot" style="--faction:${faction.color}"></i><span>${faction.name}</span><small>${FACTION_START_LABELS[id as FactionId]}起兵</small></button>`).join('')}
+        </div>
+      </div>
+    </section>
     <header class="topbar">
       <div class="brand-lockup">
         <div class="brand-seal">漢</div>
@@ -77,6 +97,7 @@ app.innerHTML = `
           <div class="detail-head"><h3>军势行军</h3><span class="detail-index">TURN</span></div>
           <div class="game-turn-row"><span>当前回合</span><strong id="turn-number">第 1 回合</strong></div>
           <div id="game-status" class="game-status"></div>
+          <button id="restart-campaign" class="secondary-action restart-campaign" type="button" hidden>重新选择势力</button>
           <button id="end-turn" class="route-cta game-turn-button" type="button">结束回合</button>
           <label class="select-label" for="unit-select">行军编制</label>
           <select id="unit-select" class="unit-select">
@@ -130,6 +151,9 @@ const zoomReadout = document.querySelector<HTMLElement>('#zoom-readout')!
 const cityCountElement = document.querySelector<HTMLElement>('#city-count')!
 const cityVisibleCountElement = document.querySelector<HTMLElement>('#city-visible-count')!
 const initialCity = world.cities.find((city) => city.id === 'chengdu')!
+const factionStartScreen = document.querySelector<HTMLElement>('#faction-start')!
+const startMessage = document.querySelector<HTMLElement>('#start-message')!
+const startTitle = document.querySelector<HTMLElement>('#start-title')!
 const provinceByTile = new Map(Array.from(world.tiles, ([key, tile]) => {
   const nearest = world.cities.reduce((closest, city) => Math.hypot(tile.x - hexToPixel(city.q, city.r).x, tile.y - hexToPixel(city.q, city.r).y) < Math.hypot(tile.x - hexToPixel(closest.q, closest.r).x, tile.y - hexToPixel(closest.q, closest.r).y) ? city : closest)
   return [key, nearest.province] as const
@@ -154,7 +178,7 @@ const worldBounds = (() => {
 })()
 let phaserGame: Phaser.Game | undefined
 
-let gameState: GameState = createInitialGameState(world)
+let gameState: GameState = createInitialGameState(world, 'liuzhang')
 
 const state = {
   city: initialCity,
@@ -332,6 +356,11 @@ function scheduleMap(): void {
   const latitude = state.selectedTile?.lat ?? 32
   const distance = 60 / state.zoom / 35 * 111 * Math.cos(latitude * Math.PI / 180) * 2
   document.querySelector('#map-scale')!.textContent = `約 ${Math.round(distance / 10) * 10} 里`
+}
+
+/** 读取战局中的城池动态归属；地图史料数据保持不变。 */
+function getCityOwner(city: City): FactionId {
+  return gameState.cityStates[city.id]?.owner ?? city.faction
 }
 
 /** 绘制地形格、州界、行军路线、山水和城池标记。 */
@@ -590,9 +619,10 @@ function drawCityTerritories(context: CanvasRenderingContext2D, visibleTiles: He
     if (!visibleCityIds.has(city.id)) continue
     const footprint = city.tileKeys.map((key) => world.tiles.get(key)!)
     const selected = city.id === state.city.id
-    const color = `#${FACTIONS[city.faction].ink.toString(16).padStart(6, '0')}`
+    const owner = getCityOwner(city)
+    const color = `#${FACTIONS[owner].ink.toString(16).padStart(6, '0')}`
     context.save()
-    context.fillStyle = selected ? '#f4dfaa' : FACTIONS[city.faction].color
+    context.fillStyle = selected ? '#f4dfaa' : FACTIONS[owner].color
     context.globalAlpha = selected ? 0.42 : 0.23
     for (const tile of footprint) {
       context.beginPath()
@@ -627,7 +657,7 @@ function drawCities(context: CanvasRenderingContext2D, visibleTiles: HexTile[]):
   for (const city of world.cities) {
     if (!visibleCityIds.has(city.id)) continue
     const { x, y } = hexToPixel(city.q, city.r)
-    const color = `#${FACTIONS[city.faction].ink.toString(16).padStart(6, '0')}`
+    const color = `#${FACTIONS[getCityOwner(city)].ink.toString(16).padStart(6, '0')}`
     const selected = state.city.id === city.id
     context.beginPath()
     pathHex(context, x, y, HEX_SIZE * 0.76)
@@ -934,14 +964,22 @@ function syncGameStatus(movementSummary?: string): void {
     ? `行军中：${location} → ${destinationLabel}`
     : gameState.army.status === 'arrived'
       ? `已抵达：${location}`
-      : `待命：${location}`
-  gameStatusElement.innerHTML = `<strong>${status}</strong><span>${movementSummary ?? `每回合最多移动 ${TURN_MOVEMENT_BUDGET} 点`}</span>`
+      : gameState.army.status === 'defeated'
+        ? '军队全灭 · 此局已败'
+        : `待命：${location}`
+  const faction = FACTIONS[gameState.playerFaction]
+  const battle = gameState.lastBattle
+  const battleSummary = battle
+    ? `${world.cities.find((city) => city.id === battle.cityId)?.name}战报：${battle.outcome === 'victory' ? '攻城胜利并占领' : '攻城失利'} · 我军损失 ${battle.attackerLosses.toLocaleString('zh-CN')} · 守军损失 ${battle.defenderLosses.toLocaleString('zh-CN')}`
+    : ''
+  gameStatusElement.innerHTML = `<strong><i class="faction-dot" style="--faction:${faction.color}"></i>${faction.name} · ${status}</strong><span>军力 ${gameState.army.troops.toLocaleString('zh-CN')} · ${movementSummary ?? `每回合最多移动 ${TURN_MOVEMENT_BUDGET} 点`}</span>${battleSummary ? `<span class="battle-status">${battleSummary}</span>` : ''}`
   endTurnButton.disabled = gameState.army.status !== 'marching'
-  armyPlanButton.disabled = gameState.army.status === 'marching'
-  unitSelect.disabled = gameState.army.status === 'marching'
-  boatToggle.disabled = gameState.army.status === 'marching'
-  plankToggle.disabled = gameState.army.status === 'marching'
-  dispatchButton.disabled = !state.pendingDispatch || state.route.length < 2 || gameState.army.status === 'marching'
+  armyPlanButton.disabled = gameState.army.status === 'marching' || gameState.army.status === 'defeated'
+  unitSelect.disabled = gameState.army.status === 'marching' || gameState.army.status === 'defeated'
+  boatToggle.disabled = gameState.army.status === 'marching' || gameState.army.status === 'defeated'
+  plankToggle.disabled = gameState.army.status === 'marching' || gameState.army.status === 'defeated'
+  dispatchButton.disabled = !state.pendingDispatch || state.route.length < 2 || gameState.army.status === 'marching' || gameState.army.status === 'defeated'
+  document.querySelector<HTMLButtonElement>('#restart-campaign')!.hidden = gameState.army.status !== 'defeated'
 }
 
 /** 从界面读取步兵、骑兵、辎重及工具选项。 */
@@ -966,14 +1004,17 @@ function updateSelection(): void {
   if (!tile) return
   const city = tile.cityId ? world.cities.find((entry) => entry.id === tile.cityId) : undefined
   const terrain = TERRAIN[tile.terrain]
-  const faction = city ? FACTIONS[city.faction] : undefined
+  const owner = city ? getCityOwner(city) : undefined
+  const faction = owner ? FACTIONS[owner] : undefined
+  const cityState = city ? gameState.cityStates[city.id] : undefined
   inspectorElement.innerHTML = city ? `
     <div class="inspector-place"><span class="inspector-label">州 · 郡國級歸屬</span><strong>${city.province} · ${city.prefecture}</strong></div>
     <h2 class="inspector-name">${city.name}<span>${city.en}</span></h2>
     <p class="inspector-copy">${city.description}</p>
     <div class="inspector-facts">
-      <div><span>控制方示意</span><strong><i class="faction-dot" style="--faction:${faction!.color}"></i>${faction!.name}</strong></div>
-      <div><span>城域規模</span><strong>七格 · ${terrain.name}</strong></div>
+      <div><span>当前城主</span><strong><i class="faction-dot" style="--faction:${faction!.color}"></i>${faction!.name}</strong></div>
+      <div><span>驻守兵力</span><strong>${(cityState?.garrison ?? 0).toLocaleString('zh-CN')} 人 · 城防 ${cityState?.defenseBonus ?? 0}%</strong></div>
+      <div><span>城域规模</span><strong>七格 · ${terrain.name}</strong></div>
       <div><span>地理坐标</span><strong>${city.lat.toFixed(1)}° N　${city.lon.toFixed(1)}° E</strong></div>
     </div>` : `
     <div class="inspector-place"><span class="inspector-label">${tile.cityCenter ? '城池中心' : '野外地块'}</span><strong>${terrain.name}</strong></div>
@@ -998,13 +1039,13 @@ function renderCityList(): void {
   const factionFilter = (document.querySelector<HTMLSelectElement>('#faction-filter')?.value ?? 'all') as FactionId | 'all'
   const cities = world.cities.filter((city) => {
     const matchesQuery = !query || [city.name, city.en, city.province, city.prefecture].some((field) => field.toLocaleLowerCase().includes(query))
-    return matchesQuery && (factionFilter === 'all' || city.faction === factionFilter)
+    return matchesQuery && (factionFilter === 'all' || getCityOwner(city) === factionFilter)
   })
   cityCountElement.textContent = `${world.cities.length}`
   cityVisibleCountElement.textContent = `${cities.length}`
   cityListElement.innerHTML = cities.map((city) => `
     <button class="city-row ${state.city.id === city.id ? 'city-row--active' : ''}" data-city="${city.id}" type="button">
-      <i class="faction-dot" style="--faction:${FACTIONS[city.faction].color}"></i>
+      <i class="faction-dot" style="--faction:${FACTIONS[getCityOwner(city)].color}"></i>
       <span class="city-row-name">${city.name}</span>
       <span class="city-row-region">${city.province}</span>
       <span class="city-row-arrow">↗</span>
@@ -1062,6 +1103,21 @@ function initializeControls(): void {
   document.querySelector<HTMLButtonElement>('#mobile-search-close')?.addEventListener('click', () => setMobilePanel(null))
   document.querySelector<HTMLButtonElement>('#mobile-close')?.addEventListener('click', () => setMobilePanel(null))
   document.querySelector<HTMLButtonElement>('#locate-city')?.addEventListener('click', () => selectCity(state.city))
+  document.querySelectorAll<HTMLButtonElement>('[data-start-faction]').forEach((button) => button.addEventListener('click', () => {
+    const faction = button.dataset.startFaction as FactionId
+    gameState = createInitialGameState(world, faction)
+    const city = world.cities.find((entry) => entry.id === FACTION_START_CITY[faction])!
+    state.city = city
+    state.selectedTile = world.tiles.get(hexKey(city.q, city.r)) ?? null
+    startTitle.innerHTML = '擇一方勢力<br />以定天下'
+    factionStartScreen.classList.add('start-screen--hidden')
+    startMessage.textContent = `${FACTIONS[faction].name} · ${city.name}起兵`
+    renderCityList()
+    updateSelection()
+    syncGameStatus()
+    focusCity(city, 4.8)
+    scheduleMap()
+  }))
   armyPlanButton.addEventListener('click', () => {
     if (gameState.army.status === 'marching') return
     state.armyPlanning = !state.armyPlanning
@@ -1107,13 +1163,31 @@ function initializeControls(): void {
     const result = endTurn(gameState, world)
     gameState = result.state
     const location = describeLocation(world.tiles.get(gameState.army.positionKey))
-    const summary = result.arrived
-      ? `本回合移动 ${result.movementSpent} 点 · 已到达目的地`
-      : `本回合移动 ${result.movementSpent} 点 · ${result.movedKeys.length} 格 · 当前 ${location}`
-    routeReport.innerHTML = `<span class="route-dot"></span>${summary}`
-    statusLine.textContent = result.arrived ? `行军抵达 · ${location}` : `第 ${gameState.turn} 回合 · 行军推进 ${result.movedKeys.length} 格`
+    const summary = result.battle
+      ? `${world.cities.find((city) => city.id === result.battle!.cityId)?.name}攻城${result.battle.outcome === 'victory' ? '得胜 · 城池已归我军' : '失利 · 退回原格'} · 损失 ${result.battle.attackerLosses.toLocaleString('zh-CN')} 人`
+      : result.arrived
+        ? `本回合移动 ${result.movementSpent} 点 · 已到达目的地`
+        : `本回合移动 ${result.movementSpent} 点 · ${result.movedKeys.length} 格 · 当前 ${location}`
+    routeReport.innerHTML = `<span class="route-dot${result.battle?.outcome === 'defeat' ? ' route-dot--danger' : ''}"></span>${summary}`
+    statusLine.textContent = result.battle
+      ? summary
+      : result.arrived
+        ? `行军抵达 · ${location}`
+        : `第 ${gameState.turn} 回合 · 行军推进 ${result.movedKeys.length} 格`
+    if (result.battle) {
+      const city = world.cities.find((entry) => entry.id === result.battle!.cityId)!
+      state.city = city
+      state.selectedTile = world.tiles.get(result.battle.entryKey) ?? world.tiles.get(hexKey(city.q, city.r)) ?? null
+    }
+    updateSelection()
+    renderCityList()
     syncGameStatus(summary)
     scheduleMap()
+  })
+  document.querySelector<HTMLButtonElement>('#restart-campaign')?.addEventListener('click', () => {
+    factionStartScreen.classList.remove('start-screen--hidden')
+    startMessage.textContent = '全軍覆沒 · 請另擇勢力再起'
+    startTitle.innerHTML = '此役已敗<br />東山再起'
   })
   routeButton.addEventListener('click', () => {
     state.pathMode = !state.pathMode

@@ -210,3 +210,26 @@ button { color: inherit; }
   .footer-left { gap: 5px; }
   .footer-right span:nth-child(2) { display: none; }
 }
+
+.start-screen { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 18px; background: rgba(32, 34, 29, .78); backdrop-filter: blur(5px); transition: opacity .25s, visibility .25s; }
+.start-screen--hidden { visibility: hidden; opacity: 0; pointer-events: none; }
+.start-panel { width: min(520px, 100%); max-height: min(760px, calc(100svh - 36px)); overflow-y: auto; padding: 30px 34px 32px; border: 1px solid rgba(160, 126, 86, .55); background: #f1efe3; box-shadow: 0 20px 70px #1118; text-align: center; }
+.start-seal { width: 42px; height: 42px; display: grid; place-items: center; margin: 0 auto 12px; border: 1px solid #a84f3b; color: #a84f3b; font: 26px 'Ma Shan Zheng', serif; }
+.start-kicker { margin: 0 0 8px; color: #9a604d; font: 11px var(--map-font); letter-spacing: .12em; }
+.start-panel h1 { margin: 0; color: #3b382f; font: 600 30px/1.45 var(--map-font); }
+.start-copy { max-width: 340px; margin: 10px auto 22px; color: #837e70; font: 11px/1.8 var(--map-font); }
+.faction-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; text-align: left; }
+.faction-choice { min-width: 0; min-height: 50px; display: grid; grid-template-columns: 10px 1fr; grid-template-rows: 1fr 1fr; align-items: center; column-gap: 9px; padding: 7px 10px; border: 1px solid rgba(75, 69, 55, .15); background: #eae8dc; cursor: pointer; transition: background .15s, border-color .15s, transform .15s; }
+.faction-choice:hover, .faction-choice:focus-visible { transform: translateY(-1px); border-color: #9f644c; background: #f2e6d8; outline: none; }
+.faction-choice .faction-dot { grid-row: 1 / 3; width: 8px; height: 8px; }
+.faction-choice span { color: #423f35; font: 600 12px var(--map-font); }
+.faction-choice small { color: #918b7d; font-size: 9px; }
+.battle-status { color: #9b4938 !important; }
+.restart-campaign { margin: 0 0 9px; color: #984a38; }
+@media (max-width: 480px) {
+  .start-panel { padding: 24px 18px; }
+  .start-panel h1 { font-size: 25px; }
+  .start-copy { margin-bottom: 17px; }
+  .faction-choices { gap: 6px; }
+  .faction-choice { min-height: 46px; padding: 6px 8px; }
+}

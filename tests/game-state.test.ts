@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createInitialGameState, dispatchArmy, endTurn, TURN_MOVEMENT_BUDGET } from '../src/game-state.ts'
-import { createWorld, findPath, hexKey, movementCost, type HexTile, type MovementOptions, type TerrainId, type World } from '../src/world.ts'
+import { createWorld, findPath, hexKey, movementCost, type FactionId, type HexTile, type MovementOptions, type TerrainId, type World } from '../src/world.ts'
 
 const world = createWorld(189)
+const historicalWorld = world
 const equippedInfantry: MovementOptions = { unit: 'infantry', boat: true, plank: true }
 
 /** 从成都寻找一座步卒可达且需要多个回合才能抵达的城市。 */
@@ -12,9 +13,9 @@ function findLongDestination(): string {
   const city = world.cities.find((candidate) => {
     const destination = world.tiles.get(hexKey(candidate.q, candidate.r))!
     const path = findPath(world, origin, destination, equippedInfantry)
-    return candidate.id !== 'chengdu' && path && path.cost > TURN_MOVEMENT_BUDGET * 2
+    return candidate.id !== 'chengdu' && candidate.faction === 'liuzhang' && path && path.cost > TURN_MOVEMENT_BUDGET * 2
   })
-  assert.ok(city, '地图中应存在多回合可达的城池')
+  assert.ok(city, '地图中应存在多回合可达的己方城池')
   return hexKey(city.q, city.r)
 }
 
@@ -32,11 +33,51 @@ function createCorridor(terrains: TerrainId[]): World {
   return { ...world, tiles: new Map(tiles.map((tile) => [hexKey(tile.q, tile.r), tile])), cities: [chengdu] }
 }
 
-test('初始军队位于成都且回合从一开始', () => {
+/** 构造成都邻接一座曹军守城的最小测试世界。 */
+function createBattleCorridor(): World {
+  const originCity = world.cities.find((city) => city.id === 'chengdu')!
+  const enemyRecord = historicalWorld.cities.find((city) => city.id === 'xuchang')!
+  const origin = world.tiles.get(hexKey(originCity.q, originCity.r))!
+  const targetQ = origin.q + 2
+  const targetR = origin.r
+  const cityTileCoordinates = [[0, 0], [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]] as const
+  const targetTileKeys = cityTileCoordinates.map(([dq, dr]) => hexKey(targetQ + dq, targetR + dr))
+  const targetCity = {
+    ...enemyRecord,
+    q: targetQ,
+    r: targetR,
+    tileKeys: targetTileKeys,
+  }
+  const tiles = [
+    { ...origin, cityId: originCity.id, cityCenter: true },
+    ...cityTileCoordinates.map(([dq, dr]) => ({
+      ...origin,
+      q: targetQ + dq,
+      r: targetR + dr,
+      cityId: targetCity.id,
+      cityCenter: dq === 0 && dr === 0,
+    })),
+  ]
+  return {
+    ...world,
+    tiles: new Map(tiles.map((tile) => [hexKey(tile.q, tile.r), tile])),
+    cities: [originCity, targetCity],
+  }
+}
+
+test('各势力从对应主城开局并独立初始化动态城主与军队', () => {
+  for (const [faction, cityId] of Object.entries({ cao: 'xuchang', liubiao: 'xiangyang', sun: 'jianye', liuzhang: 'chengdu', zhanglu: 'hanzhong', shixie: 'jiaozhi', local: 'wudu' }) as [FactionId, string][]) {
+    const state = createInitialGameState(world, faction)
+    const city = world.cities.find((candidate) => candidate.id === cityId)!
+    assert.equal(state.turn, 1)
+    assert.equal(state.playerFaction, faction)
+    assert.equal(state.army.positionKey, hexKey(city.q, city.r))
+    assert.equal(state.army.troops, 10_000)
+    assert.equal(state.cityStates[cityId]?.owner, faction)
+    assert.equal(state.cityStates[cityId]?.garrison, 3_000)
+  }
   const state = createInitialGameState(world)
-  const chengdu = world.cities.find((city) => city.id === 'chengdu')!
-  assert.equal(state.turn, 1)
-  assert.equal(state.army.positionKey, hexKey(chengdu.q, chengdu.r))
+  assert.equal(state.playerFaction, 'liuzhang')
   assert.equal(state.army.status, 'ready')
   assert.deepEqual(state.army.movementOptions, { unit: 'infantry', boat: false, plank: false })
 })
@@ -190,8 +231,69 @@ test('移动力不足以进入下一格时保留待走格供下一回合使用',
   assert.ok(observedDeferredTile, '应有至少一回合因预算不足留下待走格')
 })
 
+test('进入敌城七格城域任一格自动战斗、占领并在首次遇战后停止行军', () => {
+  const battleWorld = createBattleCorridor()
+  const state = createInitialGameState(battleWorld, 'liuzhang')
+  const city = battleWorld.cities.find((candidate) => candidate.id === 'xuchang')!
+  const entryTile = battleWorld.tiles.get(hexKey(city.q - 1, city.r))!
+  const initial = dispatchArmy(state, battleWorld, hexKey(entryTile.q, entryTile.r), equippedInfantry)
+  assert.equal(initial.ok, true)
+  if (!initial.ok) return
+  const result = endTurn(initial.state, battleWorld)
+  assert.ok(result.battle)
+  assert.equal(result.battle.outcome, 'victory')
+  assert.equal(result.state.cityStates.xuchang?.owner, 'liuzhang')
+  assert.equal(result.state.cityStates.xuchang?.garrison, 0)
+  assert.equal(result.state.army.positionKey, hexKey(entryTile.q, entryTile.r))
+  assert.equal(result.state.army.status, 'arrived')
+  assert.equal(result.state.army.pathKeys.length, 0)
+  assert.equal(result.state.army.troops, result.battle.attackerRemaining)
+  assert.equal(state.cityStates.xuchang?.owner, 'cao')
+})
+
+test('戰敗時退回進城前一格並保留守軍戰損；全滅後不能再派遣', () => {
+  const battleWorld = createBattleCorridor()
+  const state = createInitialGameState(battleWorld, 'liuzhang')
+  const enemyTile = [...battleWorld.tiles.values()].find((tile) => tile.cityId === 'xuchang')!
+  const initial = dispatchArmy(state, battleWorld, hexKey(enemyTile.q, enemyTile.r), equippedInfantry)
+  assert.equal(initial.ok, true)
+  if (!initial.ok) return
+  const weakened = {
+    ...initial.state,
+    army: { ...initial.state.army, troops: 500 },
+  }
+  const result = endTurn(weakened, battleWorld)
+  assert.equal(result.battle?.outcome, 'defeat')
+  assert.equal(result.state.army.positionKey, state.army.positionKey)
+  assert.equal(result.state.army.status, 'defeated')
+  assert.equal(result.state.army.troops, 0)
+  assert.equal(result.state.cityStates.xuchang?.owner, 'cao')
+  assert.equal(result.state.cityStates.xuchang?.garrison, result.battle?.defenderRemaining)
+  assert.deepEqual(dispatchArmy(result.state, battleWorld, hexKey(enemyTile.q, enemyTile.r), equippedInfantry), {
+    ok: false,
+    reason: 'army-defeated',
+  })
+})
+
+test('战败但尚有余兵时退回进城前一格并允许重新派遣', () => {
+  const battleWorld = createBattleCorridor()
+  const state = createInitialGameState(battleWorld, 'liuzhang')
+  const enemyTile = [...battleWorld.tiles.values()].find((tile) => tile.cityId === 'xuchang')!
+  const dispatched = dispatchArmy(state, battleWorld, hexKey(enemyTile.q, enemyTile.r), equippedInfantry)
+  assert.equal(dispatched.ok, true)
+  if (!dispatched.ok) return
+  const weakened = { ...dispatched.state, army: { ...dispatched.state.army, troops: 3_500 } }
+  const result = endTurn(weakened, battleWorld)
+  assert.equal(result.battle?.outcome, 'defeat')
+  assert.equal(result.state.army.positionKey, state.army.positionKey)
+  assert.equal(result.state.army.troops, 687)
+  assert.equal(result.state.army.status, 'ready')
+  assert.equal(result.state.cityStates.xuchang?.garrison, 1_600)
+  assert.equal(dispatchArmy(result.state, battleWorld, hexKey(enemyTile.q, enemyTile.r), equippedInfantry).ok, true)
+})
+
 test('行军过程不改写地图或城池原有势力标签', () => {
-  const cityFactions = world.cities.map((city) => [city.id, city.faction])
+  const cityFactions = historicalWorld.cities.map((city) => [city.id, city.faction])
   const tiles = [...world.tiles].map(([key, tile]) => [key, { ...tile }])
   const dispatched = dispatchArmy(createInitialGameState(world), world, findLongDestination(), equippedInfantry)
   assert.equal(dispatched.ok, true)
