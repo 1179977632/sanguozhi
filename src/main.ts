@@ -707,27 +707,28 @@ function drawMarchingRoute(context: CanvasRenderingContext2D): void {
   context.restore()
 }
 
-/** 在地图上标出当前军队位置，与城池标记和地形格分层显示。 */
+/** 以固定屏幕尺寸标出当前军队位置，保持缩放后的标记清晰可见。 */
 function drawArmyMarker(context: CanvasRenderingContext2D): void {
   const tile = world.tiles.get(gameState.army.positionKey)
   if (!tile) return
   const { x, y } = hexToPixel(tile.q, tile.r)
+  const screenScale = 1 / state.zoom
   context.save()
   context.beginPath()
-  context.arc(x, y, HEX_SIZE * 0.55, 0, Math.PI * 2)
+  context.arc(x, y, 9 * screenScale, 0, Math.PI * 2)
   context.fillStyle = '#f5efdc'
   context.fill()
   context.strokeStyle = '#7f352c'
-  context.lineWidth = HEX_SIZE * 0.15
+  context.lineWidth = 1.5 * screenScale
   context.stroke()
   context.beginPath()
-  context.arc(x, y, HEX_SIZE * 0.34, 0, Math.PI * 2)
+  context.arc(x, y, 7 * screenScale, 0, Math.PI * 2)
   context.fillStyle = '#a14a3a'
   context.fill()
   context.fillStyle = '#fff8e8'
   context.textAlign = 'center'
   context.textBaseline = 'middle'
-  context.font = `700 ${HEX_SIZE * 0.36}px "Noto Sans SC", sans-serif`
+  context.font = `700 ${10 * screenScale}px "Noto Sans SC", sans-serif`
   context.fillText('军', x, y)
   context.restore()
 }
