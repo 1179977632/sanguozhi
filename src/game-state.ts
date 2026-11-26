@@ -1,6 +1,7 @@
 import type { FactionId, MovementOptions, World } from './world'
 import { findPath, hexKey, movementCost } from './world'
 import { resolveCombat, type CombatResult } from './combat'
+import { DEFAULT_EVENT_SEED, resolveRandomEventChoice, rollRandomEvent, type PendingEvent, type RandomEventId } from './events'
 
 export const TURN_MOVEMENT_BUDGET = 6
 export const INITIAL_ARMY_TROOPS = 10_000
@@ -44,17 +45,40 @@ export interface BattleReport extends CombatResult {
   retreatKey: string
 }
 
+export interface BattleLogEntry {
+  kind: 'battle'
+  turn: number
+  report: BattleReport
+}
+
+export interface EventLogEntry {
+  kind: 'event'
+  turn: number
+  eventId: RandomEventId
+  title: string
+  choice: string
+  result: string
+}
+
+export type TurnLogEntry = BattleLogEntry | EventLogEntry
+
+export const TURN_LOG_LIMIT = 50
+
 export interface GameState {
   turn: number
   playerFaction: FactionId
   cityStates: Record<string, CityState>
   army: ArmyState
   lastBattle: BattleReport | null
+  rngState: number
+  pendingEvent: PendingEvent | null
+  nextTurnMovementModifier: number
+  turnLog: TurnLogEntry[]
 }
 
 export type DispatchResult =
   | { ok: true; state: GameState }
-  | { ok: false; reason: 'army-marching' | 'army-defeated' | 'unknown-destination' | 'same-location' | 'unreachable' }
+  | { ok: false; reason: 'army-marching' | 'army-defeated' | 'pending-event' | 'unknown-destination' | 'same-location' | 'unreachable' }
 
 export interface TurnResult {
   state: GameState
@@ -62,10 +86,16 @@ export interface TurnResult {
   movementSpent: number
   arrived: boolean
   battle: BattleReport | null
+  event: PendingEvent | null
+  blocked: 'pending-event' | 'army-defeated' | null
 }
 
+export type EventChoiceResult =
+  | { ok: true; state: GameState }
+  | { ok: false; reason: 'no-pending-event' | 'invalid-option' }
+
 /** 按所选势力的起兵城创建独立的城主、驻军和首回合状态。 */
-export function createInitialGameState(world: World, playerFaction: FactionId = 'liuzhang'): GameState {
+export function createInitialGameState(world: World, playerFaction: FactionId = 'liuzhang', eventSeed = DEFAULT_EVENT_SEED): GameState {
   const origin = world.cities.find((city) => city.id === FACTION_START_CITY[playerFaction])
   if (!origin) throw new Error(`游戏地图缺少起兵城：${FACTION_START_CITY[playerFaction]}`)
   return {
@@ -86,11 +116,16 @@ export function createInitialGameState(world: World, playerFaction: FactionId = 
       movementOptions: { unit: 'infantry', boat: false, plank: false },
     },
     lastBattle: null,
+    rngState: eventSeed >>> 0,
+    pendingEvent: null,
+    nextTurnMovementModifier: 0,
+    turnLog: [],
   }
 }
 
 /** 从军队当前位置规划并确认一条合法行军路线；无效命令不会修改原状态。 */
 export function dispatchArmy(state: GameState, world: World, destinationKey: string, options: MovementOptions): DispatchResult {
+  if (state.pendingEvent) return { ok: false, reason: 'pending-event' }
   if (state.army.status === 'defeated' || state.army.troops === 0) return { ok: false, reason: 'army-defeated' }
   if (state.army.status === 'marching') return { ok: false, reason: 'army-marching' }
   const start = world.tiles.get(state.army.positionKey)
