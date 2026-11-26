@@ -874,6 +874,10 @@ function selectArmyDestination(tile: HexTile): void {
   armyPlanButton.setAttribute('aria-pressed', 'false')
   armyPlanButton.textContent = '重新选择目的地'
   refreshRoute()
+  if (mobileViewport.matches) {
+    setMobilePanel('details')
+    routeReport.scrollIntoView({ block: 'center' })
+  }
 }
 
 /** 按当前行军配置重算已提交路线；无路时清空旧线但保留起终点，便于恢复装备后自动重算。 */
@@ -883,7 +887,7 @@ function refreshRoute(): void {
   const end = world.tiles.get(hexKey(state.routeTo.q, state.routeTo.r))
   if (!start || !end) return
   const path = findPath(world, start, end, readMovementOptions())
-  if (!path || path.tiles.length < 2) {
+  if (!path || (state.pendingDispatch && path.tiles.length < 2)) {
     state.route = []
     state.routeCost = 0
     dispatchButton.disabled = true
@@ -1075,6 +1079,7 @@ function initializeControls(): void {
     routeReport.innerHTML = '<span class="route-dot"></span>尚未规划路线'
     statusLine.textContent = state.armyPlanning ? '选择地图上的行军目的地' : '浏览模式'
     syncGameStatus()
+    if (state.armyPlanning && mobileViewport.matches) setMobilePanel(null)
     scheduleMap()
   })
   dispatchButton.addEventListener('click', () => {
