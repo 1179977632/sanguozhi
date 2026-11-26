@@ -80,10 +80,10 @@ app.innerHTML = `
           <button id="end-turn" class="route-cta game-turn-button" type="button">结束回合</button>
           <label class="select-label" for="unit-select">行军编制</label>
           <select id="unit-select" class="unit-select">
-            <option value="infantry">步卒 · 平原通行</option><option value="cavalry">騎兵 · 機動行軍</option><option value="supply">輜重 · 糧車補給</option>
+            <option value="infantry">步卒 · 平原通行</option><option value="cavalry">骑兵 · 机动行军</option><option value="supply">辎重 · 粮车补给</option>
           </select>
           <div class="toggle-row"><span>舟船 · 渡河行水</span><input id="boat-toggle" class="toggle" type="checkbox" /></div>
-          <div class="toggle-row"><span>棧道 · 翻越山隘</span><input id="plank-toggle" class="toggle" type="checkbox" /></div>
+          <div class="toggle-row"><span>栈道 · 翻越山隘</span><input id="plank-toggle" class="toggle" type="checkbox" /></div>
           <div id="route-report" class="route-report"><i class="route-dot"></i>尚未规划路线</div>
           <button id="army-plan" class="route-cta" type="button" aria-pressed="false">选择出征目的地</button>
           <button id="dispatch-army" class="route-cta" type="button" disabled>派遣军队</button>
@@ -696,7 +696,7 @@ function drawMarchingRoute(context: CanvasRenderingContext2D): void {
   context.save()
   context.lineCap = 'round'
   context.lineJoin = 'round'
-  context.lineWidth = 2.5
+  context.lineWidth = 2.5 / state.zoom
   context.strokeStyle = 'rgba(125,55,43,.9)'
   context.beginPath()
   remaining.forEach((tile, index) => {
@@ -914,15 +914,18 @@ function applyMovementChange(): void {
   refreshRoute()
 }
 
+/** 将军队所在格显示为城池名称或地理坐标。 */
+function describeLocation(tile: HexTile | undefined): string {
+  const city = tile?.cityId ? world.cities.find((entry) => entry.id === tile.cityId) : undefined
+  return city?.name ?? (tile ? `${tile.lon.toFixed(1)}°E · ${tile.lat.toFixed(1)}°N` : '未知位置')
+}
+
 /** 同步回合、军队位置和行军结果到军势面板。 */
 function syncGameStatus(movementSummary?: string): void {
   turnNumberElement.textContent = `第 ${gameState.turn} 回合`
-  const position = world.tiles.get(gameState.army.positionKey)
-  const city = position?.cityId ? world.cities.find((entry) => entry.id === position.cityId) : undefined
-  const location = city?.name ?? (position ? `${position.lon.toFixed(1)}°E · ${position.lat.toFixed(1)}°N` : '未知位置')
+  const location = describeLocation(world.tiles.get(gameState.army.positionKey))
   const destination = gameState.army.destinationKey ? world.tiles.get(gameState.army.destinationKey) : undefined
-  const destinationCity = destination?.cityId ? world.cities.find((entry) => entry.id === destination.cityId) : undefined
-  const destinationLabel = destinationCity?.name ?? (destination ? `${destination.lon.toFixed(1)}°E · ${destination.lat.toFixed(1)}°N` : '')
+  const destinationLabel = describeLocation(destination)
   const status = gameState.army.status === 'marching'
     ? `行军中：${location} → ${destinationLabel}`
     : gameState.army.status === 'arrived'
@@ -1082,6 +1085,7 @@ function initializeControls(): void {
       return
     }
     gameState = result.state
+    const destinationLabel = describeLocation(state.routeTo)
     state.route = []
     state.routeCost = 0
     state.routeStart = null
@@ -1089,7 +1093,7 @@ function initializeControls(): void {
     state.routeTo = null
     state.pendingDispatch = false
     armyPlanButton.textContent = '选择出征目的地'
-    routeReport.innerHTML = `<span class="route-dot"></span>军队已出发 · 目标 ${gameState.army.destinationKey}`
+    routeReport.innerHTML = `<span class="route-dot"></span>军队已出发 · 目标 ${destinationLabel}`
     statusLine.textContent = '军队已出发'
     syncGameStatus()
     scheduleMap()
@@ -1097,9 +1101,7 @@ function initializeControls(): void {
   endTurnButton.addEventListener('click', () => {
     const result = endTurn(gameState, world)
     gameState = result.state
-    const position = world.tiles.get(gameState.army.positionKey)
-    const city = position?.cityId ? world.cities.find((entry) => entry.id === position.cityId) : undefined
-    const location = city?.name ?? (position ? `${position.lon.toFixed(1)}°E · ${position.lat.toFixed(1)}°N` : '未知位置')
+    const location = describeLocation(world.tiles.get(gameState.army.positionKey))
     const summary = result.arrived
       ? `本回合移动 ${result.movementSpent} 点 · 已到达目的地`
       : `本回合移动 ${result.movementSpent} 点 · ${result.movedKeys.length} 格 · 当前 ${location}`
@@ -1173,9 +1175,6 @@ function handleKeyboard(event: KeyboardEvent): void {
     setMobilePanel(null)
     return
   }
-  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return
-  if (event.key === '+' || event.key === '=') zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.2)
-  if (event.key === '-') zoomAt(window.innerWidth / 2, window.innerHeight / 2, 0.83)
   if (event.key === 'Escape' && (state.pathMode || state.armyPlanning || state.pendingDispatch)) {
     state.pathMode = false
     state.armyPlanning = false
@@ -1194,6 +1193,9 @@ function handleKeyboard(event: KeyboardEvent): void {
     syncGameStatus()
     scheduleMap()
   }
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return
+  if (event.key === '+' || event.key === '=') zoomAt(window.innerWidth / 2, window.innerHeight / 2, 1.2)
+  if (event.key === '-') zoomAt(window.innerWidth / 2, window.innerHeight / 2, 0.83)
   if (event.key.toLowerCase() === 'r') {
     state.panX = 0
     state.panY = 0
