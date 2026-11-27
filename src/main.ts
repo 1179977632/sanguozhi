@@ -1238,7 +1238,7 @@ function initializeControls(): void {
     scheduleMap()
   }))
   armyPlanButton.addEventListener('click', () => {
-    if (gameState.army.status === 'marching') return
+    if (gameState.pendingEvent || gameState.army.status === 'marching' || gameState.army.status === 'defeated') return
     state.armyPlanning = !state.armyPlanning
     state.pendingDispatch = false
     state.pathMode = false
@@ -1279,20 +1279,27 @@ function initializeControls(): void {
     scheduleMap()
   })
   endTurnButton.addEventListener('click', () => {
+    const wasMarching = gameState.army.status === 'marching'
     const result = endTurn(gameState, world)
+    if (result.blocked) return
     gameState = result.state
+    clearRoutePreview()
     const location = describeLocation(world.tiles.get(gameState.army.positionKey))
     const summary = result.battle
       ? `${world.cities.find((city) => city.id === result.battle!.cityId)?.name}攻城${result.battle.outcome === 'victory' ? '得胜 · 城池已归我军' : '失利 · 退回原格'} · 损失 ${result.battle.attackerLosses.toLocaleString('zh-CN')} 人`
-      : result.arrived
-        ? `本回合移动 ${result.movementSpent} 点 · 已到达目的地`
-        : `本回合移动 ${result.movementSpent} 点 · ${result.movedKeys.length} 格 · 当前 ${location}`
+      : !wasMarching
+        ? '本回合待命 · 军队原地休整'
+        : result.arrived
+          ? `本回合移动 ${result.movementSpent} 点 · 已到达目的地`
+          : `本回合移动 ${result.movementSpent} 点 · ${result.movedKeys.length} 格 · 当前 ${location}`
     routeReport.innerHTML = `<span class="route-dot${result.battle?.outcome === 'defeat' ? ' route-dot--danger' : ''}"></span>${summary}`
     statusLine.textContent = result.battle
       ? summary
-      : result.arrived
-        ? `行军抵达 · ${location}`
-        : `第 ${gameState.turn} 回合 · 行军推进 ${result.movedKeys.length} 格`
+      : !wasMarching
+        ? `第 ${gameState.turn} 回合 · 军队待命`
+        : result.arrived
+          ? `行军抵达 · ${location}`
+          : `第 ${gameState.turn} 回合 · 行军推进 ${result.movedKeys.length} 格`
     if (result.battle) {
       const city = world.cities.find((entry) => entry.id === result.battle!.cityId)!
       state.city = city
@@ -1304,11 +1311,13 @@ function initializeControls(): void {
     scheduleMap()
   })
   document.querySelector<HTMLButtonElement>('#restart-campaign')?.addEventListener('click', () => {
+    if (gameState.pendingEvent) return
     factionStartScreen.classList.remove('start-screen--hidden')
     startMessage.textContent = '全軍覆沒 · 請另擇勢力再起'
     startTitle.innerHTML = '此役已敗<br />東山再起'
   })
   routeButton.addEventListener('click', () => {
+    if (gameState.pendingEvent) return
     state.pathMode = !state.pathMode
     state.armyPlanning = false
     state.pendingDispatch = false
@@ -1327,18 +1336,8 @@ function initializeControls(): void {
     scheduleMap()
   })
   document.querySelector<HTMLButtonElement>('#clear-route')?.addEventListener('click', () => {
-    state.route = []
-    state.routeCost = 0
-    state.routeStart = null
-    state.routeFrom = null
-    state.routeTo = null
-    state.pathMode = false
-    state.armyPlanning = false
-    state.pendingDispatch = false
-    armyPlanButton.setAttribute('aria-pressed', 'false')
-    armyPlanButton.textContent = '选择出征目的地'
-    routeButton.classList.remove('tool-button--active')
-    routeButton.setAttribute('aria-pressed', 'false')
+    if (gameState.pendingEvent) return
+    clearRoutePreview()
     routeReport.innerHTML = '<span class="route-dot"></span>尚未规划路线'
     statusLine.textContent = '浏览模式'
     syncGameStatus()
@@ -1354,6 +1353,7 @@ function initializeControls(): void {
 
 /** 以鼠标位置为锚点平滑放大或縮小地图。 */
 function zoomAt(clientX: number, clientY: number, factor: number): void {
+  if (gameState.pendingEvent) return
   const rect = mapCanvas.getBoundingClientRect()
   const x = clientX - rect.left
   const y = clientY - rect.top
@@ -1368,6 +1368,10 @@ function zoomAt(clientX: number, clientY: number, factor: number): void {
 
 /** 支持键盘缩放、Escape 关闭移动面板或退出路线规划。 */
 function handleKeyboard(event: KeyboardEvent): void {
+  if (gameState.pendingEvent) {
+    if (event.key === 'Escape') event.preventDefault()
+    return
+  }
   if (event.key === 'Escape' && mobilePanel) {
     event.preventDefault()
     setMobilePanel(null)

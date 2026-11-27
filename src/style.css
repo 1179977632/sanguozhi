@@ -226,6 +226,33 @@ button { color: inherit; }
 .faction-choice small { color: #918b7d; font-size: 9px; }
 .battle-status { color: #9b4938 !important; }
 .restart-campaign { margin: 0 0 9px; color: #984a38; }
+.movement-effect { color: #8f4938 !important; }
+.turn-history { margin-top: 17px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.turn-history summary { display: flex; align-items: center; justify-content: space-between; min-height: 32px; color: #655a49; cursor: pointer; font: 600 11px var(--map-font); }
+.turn-history summary::before { content: '＋'; margin-right: 7px; color: var(--vermilion); }
+.turn-history[open] summary::before { content: '－'; }
+.turn-history summary span { margin-left: auto; color: #918979; font: 9px 'Noto Sans SC', sans-serif; }
+.turn-log { max-height: 280px; overflow-y: auto; overscroll-behavior: contain; margin: 5px 0 0; padding: 0; list-style: none; scrollbar-width: thin; }
+.turn-log li { padding: 10px 0; border-top: 1px solid var(--rule); font-size: 10px; line-height: 1.7; }
+.turn-log small { display: block; color: #8b7561; font-size: 9px; }
+.turn-log strong { display: block; margin-top: 3px; color: #5d5142; font: 600 11px var(--map-font); }
+.turn-log p { margin: 4px 0 0; color: #777060; }
+.turn-log-empty { color: #8b8577; }
+.event-dialog { width: min(460px, calc(100vw - 36px)); max-height: calc(100svh - 36px); overflow-y: auto; padding: 28px; border: 1px solid #a68460; background: var(--paper); color: var(--ink); box-shadow: 0 20px 70px #1118; }
+.event-dialog::backdrop { background: rgba(32, 34, 29, .76); backdrop-filter: blur(4px); }
+.event-dialog h2 { margin: 6px 0 12px; font: 600 27px/1.5 var(--map-font); }
+.event-description { margin: 0; color: #6f6757; font: 13px/1.9 var(--map-font); }
+.event-pause-note { margin: 13px 0 17px; color: #94735b; font-size: 11px; }
+.event-options { display: grid; gap: 10px; }
+.event-option { display: flex; flex-direction: column; gap: 5px; width: 100%; min-height: 64px; padding: 12px 14px; border: 1px solid #c8b79c; background: var(--paper-deep); text-align: left; cursor: pointer; }
+.event-option strong { color: #8f4938; font: 600 14px var(--map-font); }
+.event-option span { color: #777060; font-size: 11px; line-height: 1.7; }
+.event-option:hover { border-color: var(--vermilion); background: #ece0ce; }
+.event-option:focus-visible, .turn-history summary:focus-visible { outline: 2px solid var(--vermilion); outline-offset: 3px; }
+@media (max-width: 480px) {
+  .event-dialog { padding: 22px 18px; }
+  .event-option { min-height: 72px; }
+}
 @media (max-width: 480px) {
   .start-panel { padding: 24px 18px; }
   .start-panel h1 { font-size: 25px; }
