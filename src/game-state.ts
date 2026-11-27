@@ -1,7 +1,7 @@
 import type { FactionId, MovementOptions, World } from './world'
 import { findPath, hexKey, movementCost } from './world'
 import { resolveCombat, type CombatResult } from './combat'
-import { DEFAULT_EVENT_SEED, resolveRandomEventChoice, rollRandomEvent, type PendingEvent, type RandomEventId } from './events'
+import { DEFAULT_EVENT_SEED, RANDOM_EVENT_DEFINITIONS, resolveRandomEventChoice, rollRandomEvent, type PendingEvent, type RandomEventId } from './events'
 
 export const TURN_MOVEMENT_BUDGET = 6
 export const INITIAL_ARMY_TROOPS = 10_000
@@ -151,128 +151,129 @@ export function dispatchArmy(state: GameState, world: World, destinationKey: str
   }
 }
 
-/** 推进一个回合并按六点移动力预算逐格移动；不修改输入状态或地图。 */
+/** 先结算行军与战斗，再统一推进回合、消耗临时移动力并抽取事件。 */
 export function endTurn(state: GameState, world: World): TurnResult {
-  if (state.army.status !== 'marching') {
-    return {
-      state: { ...state, turn: state.turn + 1, army: { ...state.army, movementOptions: { ...state.army.movementOptions } } },
-      movedKeys: [],
-      movementSpent: 0,
-      arrived: false,
-      battle: null,
-    }
+  const blocked = state.pendingEvent ? 'pending-event'
+    : state.army.status === 'defeated' || state.army.troops === 0 ? 'army-defeated' : null
+  if (blocked) {
+    return { state, movedKeys: [], movementSpent: 0, arrived: false, battle: null, event: state.pendingEvent, blocked }
   }
 
-  let nextTileIndex = state.army.nextTileIndex
-  let positionKey = state.army.positionKey
-  let troops = state.army.troops
+  let army: ArmyState = { ...state.army, movementOptions: { ...state.army.movementOptions } }
+  let cityStates = state.cityStates
+  let battle: BattleReport | null = null
   let movementSpent = 0
+  let arrived = false
   const movedKeys: string[] = []
-  while (nextTileIndex < state.army.pathKeys.length) {
-    const key = state.army.pathKeys[nextTileIndex]!
-    const tile = world.tiles.get(key)
-    if (!tile) break
-    const cost = movementCost(tile, state.army.movementOptions)
-    if (!Number.isFinite(cost) || movementSpent + cost > TURN_MOVEMENT_BUDGET) break
+  const movementBudget = Math.max(0, TURN_MOVEMENT_BUDGET + state.nextTurnMovementModifier)
 
-    movementSpent += cost
-    const city = tile.cityId ? world.cities.find((entry) => entry.id === tile.cityId) : undefined
-    const cityState = city ? state.cityStates[city.id] : undefined
-    if (city && cityState && cityState.owner !== state.playerFaction) {
-      const combat = resolveCombat({
-        attackerTroops: troops,
-        defenderTroops: cityState.garrison,
-        defenseBonus: cityState.defenseBonus,
-      })
-      const battle: BattleReport = {
-        ...combat,
-        turn: state.turn,
-        cityId: city.id,
-        attackerFaction: state.playerFaction,
-        defenderFaction: cityState.owner,
-        entryKey: key,
-        retreatKey: positionKey,
-      }
-      troops = combat.attackerRemaining
-      if (combat.outcome === 'victory') {
-        positionKey = key
-        movedKeys.push(key)
-        return {
-          state: {
-            ...state,
-            turn: state.turn + 1,
-            cityStates: {
-              ...state.cityStates,
-              [city.id]: { owner: state.playerFaction, garrison: 0, defenseBonus: 0 },
-            },
-            army: {
-              ...state.army,
-              positionKey,
-              troops,
-              status: 'arrived',
-              destinationKey: key,
-              pathKeys: [],
-              nextTileIndex: 0,
-              movementOptions: { ...state.army.movementOptions },
-            },
-            lastBattle: battle,
-          },
-          movedKeys,
-          movementSpent,
-          arrived: true,
-          battle,
+  if (army.status === 'marching') {
+    while (army.nextTileIndex < army.pathKeys.length) {
+      const key = army.pathKeys[army.nextTileIndex]!
+      const tile = world.tiles.get(key)
+      if (!tile) break
+      const cost = movementCost(tile, army.movementOptions)
+      if (!Number.isFinite(cost) || movementSpent + cost > movementBudget) break
+
+      movementSpent += cost
+      const city = tile.cityId ? world.cities.find((entry) => entry.id === tile.cityId) : undefined
+      const cityState = city ? cityStates[city.id] : undefined
+      if (city && cityState && cityState.owner !== state.playerFaction) {
+        const combat = resolveCombat({
+          attackerTroops: army.troops,
+          defenderTroops: cityState.garrison,
+          defenseBonus: cityState.defenseBonus,
+        })
+        battle = {
+          ...combat,
+          turn: state.turn,
+          cityId: city.id,
+          attackerFaction: state.playerFaction,
+          defenderFaction: cityState.owner,
+          entryKey: key,
+          retreatKey: army.positionKey,
         }
+        arrived = combat.outcome === 'victory'
+        cityStates = {
+          ...cityStates,
+          [city.id]: arrived
+            ? { owner: state.playerFaction, garrison: 0, defenseBonus: 0 }
+            : { ...cityState, garrison: combat.defenderRemaining },
+        }
+        if (arrived) movedKeys.push(key)
+        army = {
+          ...army,
+          positionKey: arrived ? key : army.positionKey,
+          troops: combat.attackerRemaining,
+          status: arrived ? 'arrived' : combat.attackerRemaining > 0 ? 'ready' : 'defeated',
+          destinationKey: arrived ? key : null,
+          pathKeys: [],
+          nextTileIndex: 0,
+        }
+        break
       }
 
-      const status = troops > 0 ? 'ready' : 'defeated'
-      return {
-        state: {
-          ...state,
-          turn: state.turn + 1,
-          cityStates: {
-            ...state.cityStates,
-            [city.id]: { ...cityState, garrison: combat.defenderRemaining },
-          },
-          army: {
-            ...state.army,
-            positionKey,
-            troops,
-            status,
-            destinationKey: null,
-            pathKeys: [],
-            nextTileIndex: 0,
-            movementOptions: { ...state.army.movementOptions },
-          },
-          lastBattle: battle,
-        },
-        movedKeys,
-        movementSpent,
-        arrived: false,
-        battle,
-      }
+      army.positionKey = key
+      movedKeys.push(key)
+      army.nextTileIndex += 1
     }
-
-    positionKey = key
-    movedKeys.push(key)
-    nextTileIndex += 1
+    if (!battle) {
+      arrived = army.nextTileIndex >= army.pathKeys.length
+      army.status = arrived ? 'arrived' : 'marching'
+    }
   }
 
-  const arrived = nextTileIndex >= state.army.pathKeys.length
+  const roll = army.troops > 0 ? rollRandomEvent(state.rngState) : { rngState: state.rngState, eventId: null }
+  const event: PendingEvent | null = roll.eventId ? { id: roll.eventId, turn: state.turn } : null
+  const turnLog: TurnLogEntry[] = battle
+    ? [...state.turnLog, { kind: 'battle', turn: state.turn, report: battle }].slice(-TURN_LOG_LIMIT) as TurnLogEntry[]
+    : state.turnLog
   return {
     state: {
       ...state,
       turn: state.turn + 1,
-      army: {
-        ...state.army,
-        positionKey,
-        status: arrived ? 'arrived' : 'marching',
-        nextTileIndex,
-        movementOptions: { ...state.army.movementOptions },
-      },
+      army,
+      cityStates,
+      lastBattle: battle ?? state.lastBattle,
+      rngState: roll.rngState,
+      pendingEvent: event,
+      nextTurnMovementModifier: 0,
+      turnLog,
     },
     movedKeys,
     movementSpent,
     arrived,
-    battle: null,
+    battle,
+    event,
+    blocked: null,
+  }
+}
+
+/** 应用当前事件的有效选项并记录结果；无效或重复选择不改变状态。 */
+export function resolvePendingEvent(state: GameState, optionId: string): EventChoiceResult {
+  const pending = state.pendingEvent
+  if (!pending) return { ok: false, reason: 'no-pending-event' }
+  const option = resolveRandomEventChoice(pending.id, optionId)
+  if (!option) return { ok: false, reason: 'invalid-option' }
+  const troops = Math.max(0, state.army.troops + option.troopsDelta)
+  const entry: EventLogEntry = {
+    kind: 'event',
+    turn: pending.turn,
+    eventId: pending.id,
+    title: RANDOM_EVENT_DEFINITIONS[pending.id].title,
+    choice: option.label,
+    result: option.result,
+  }
+  return {
+    ok: true,
+    state: {
+      ...state,
+      army: troops > 0 ? { ...state.army, troops } : {
+        ...state.army, troops: 0, status: 'defeated', destinationKey: null, pathKeys: [], nextTileIndex: 0,
+      },
+      pendingEvent: null,
+      nextTurnMovementModifier: troops > 0 ? state.nextTurnMovementModifier + option.movementModifierDelta : 0,
+      turnLog: [...state.turnLog, entry].slice(-TURN_LOG_LIMIT),
+    },
   }
 }

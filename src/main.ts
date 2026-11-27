@@ -3,7 +3,8 @@ import { createIcons, ArrowDownUp, ArrowLeft, ArrowRight, ChevronsDown, Compass,
 import type { City, FactionId, HexTile, MovementOptions } from './world'
 import { createWorld, DIRECTIONS, FACTIONS, HEX_SIZE, LAKES, MOUNTAIN_RANGES, TERRAIN, findPath, geoToPixel, hexKey, hexToPixel, movementCost, pixelToHex } from './world'
 import { advanceGesture, clampZoom, fitZoom, startGesture, type PointerGesture } from './map-interaction'
-import { createInitialGameState, dispatchArmy, endTurn, FACTION_START_CITY, TURN_MOVEMENT_BUDGET, type GameState } from './game-state'
+import { createInitialGameState, dispatchArmy, endTurn, resolvePendingEvent, FACTION_START_CITY, TURN_MOVEMENT_BUDGET, type GameState } from './game-state'
+import { RANDOM_EVENT_DEFINITIONS, type RandomEventOption } from './events'
 import './style.css'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
@@ -111,6 +112,7 @@ app.innerHTML = `
           <button id="route-button" class="secondary-action route-preview-button" type="button" aria-pressed="false">自由路线预览</button>
           <button id="clear-route" class="secondary-action" type="button">清除路线</button>
           <div class="movement-costs"><div><span>平原步卒</span><strong>1 移动力</strong></div><div><span>丘陵步卒</span><strong>2 移动力</strong></div><div><span>河流步卒</span><strong class="danger">須乘舟</strong></div></div>
+          <details class="turn-history"><summary>战报与事件 <span id="turn-log-count">0 / 50</span></summary><ol id="turn-log" class="turn-log" aria-label="最近战报与事件"></ol></details>
         </section>
         <section class="detail-section">
           <div class="detail-head"><h3>圖層與示意</h3><span class="detail-index">LAYERS</span></div>
@@ -127,7 +129,14 @@ app.innerHTML = `
       </aside>
     </div>
     <footer class="footer"><div class="footer-left"><span>天下山川 · 軍行九州</span><span>地勢圖 · 第一卷</span></div><div class="footer-right"><span>滾輪縮放</span><span>拖曳平移</span><span><i class="footer-key">ESC</i> 取消路線</span><span>HAN · 建安</span></div></footer>
-  </main>`
+  </main>
+  <dialog id="event-dialog" class="event-dialog" aria-labelledby="event-title" aria-describedby="event-description event-pause-note">
+    <p id="event-turn" class="start-kicker"></p>
+    <h2 id="event-title"></h2>
+    <p id="event-description" class="event-description"></p>
+    <p id="event-pause-note" class="event-pause-note">军务暂停，请先作出选择。</p>
+    <div id="event-options" class="event-options"></div>
+  </dialog>`
 
 const world = createWorld(189)
 const mapCanvas = document.querySelector<HTMLCanvasElement>('#map')!
@@ -145,6 +154,10 @@ const dispatchButton = document.querySelector<HTMLButtonElement>('#dispatch-army
 const endTurnButton = document.querySelector<HTMLButtonElement>('#end-turn')!
 const gameStatusElement = document.querySelector<HTMLElement>('#game-status')!
 const turnNumberElement = document.querySelector<HTMLElement>('#turn-number')!
+const eventDialog = document.querySelector<HTMLDialogElement>('#event-dialog')!
+const eventOptionsElement = document.querySelector<HTMLElement>('#event-options')!
+const turnLogElement = document.querySelector<HTMLOListElement>('#turn-log')!
+const atlasElement = document.querySelector<HTMLElement>('.atlas')!
 const statusLine = document.querySelector<HTMLElement>('#status-line')!
 const coordinatesElement = document.querySelector<HTMLElement>('#coordinates')!
 const zoomReadout = document.querySelector<HTMLElement>('#zoom-readout')!
@@ -797,7 +810,7 @@ function advanceMapPointer(event: PointerEvent): boolean {
 
 /** 开始主指针的地图拖动手势并捕获指针。 */
 function handleMapPointerDown(event: PointerEvent): void {
-  if (!event.isPrimary || event.button !== 0 || state.gesture) return
+  if (gameState.pendingEvent || !event.isPrimary || event.button !== 0 || state.gesture) return
   state.gesture = startGesture(event.pointerId, event.clientX, event.clientY)
   mapCanvas.setPointerCapture(event.pointerId)
   mapCanvas.style.cursor = 'grabbing'
@@ -805,6 +818,7 @@ function handleMapPointerDown(event: PointerEvent): void {
 
 /** 更新地图悬停信息，并仅响应当前活动指针的拖动。 */
 function handleMapPointerMove(event: PointerEvent): void {
+  if (gameState.pendingEvent) return
   if (state.gesture && state.gesture.pointerId !== event.pointerId) return
   const point = pointerWorld(event.clientX, event.clientY)
   const cell = pixelToHex(point.x, point.y)
@@ -848,7 +862,7 @@ function handleMapPointerCancel(event: PointerEvent): void {
 
 /** 把地图点击映射到相邻真实格并更新侧栏。 */
 function handleMapClick(event: PointerEvent): void {
-  if (event.button !== 0) return
+  if (gameState.pendingEvent || event.button !== 0) return
   const point = pointerWorld(event.clientX, event.clientY)
   const cell = pixelToHex(point.x, point.y)
   const tile = world.tiles.get(hexKey(cell.q, cell.r))
@@ -872,6 +886,7 @@ function handleMapClick(event: PointerEvent): void {
 
 /** 选择出发格和抵达格并按当前军种配置查询移动力最短路。 */
 function selectRouteWaypoint(tile: HexTile): void {
+  if (gameState.pendingEvent) return
   if (!state.routeStart) {
     state.routeStart = tile
     state.route = []
@@ -894,6 +909,7 @@ function selectRouteWaypoint(tile: HexTile): void {
 
 /** 以军队当前位置为起点选择并预览出征目的地。 */
 function selectArmyDestination(tile: HexTile): void {
+  if (gameState.pendingEvent || gameState.army.status === 'marching' || gameState.army.status === 'defeated') return
   const position = world.tiles.get(gameState.army.positionKey)
   if (!position) return
   state.routeFrom = position
@@ -912,6 +928,7 @@ function selectArmyDestination(tile: HexTile): void {
 
 /** 按当前行军配置重算已提交路线；无路时清空旧线但保留起终点，便于恢复装备后自动重算。 */
 function refreshRoute(): void {
+  if (gameState.pendingEvent) return
   if (!state.routeFrom || !state.routeTo) return
   const start = world.tiles.get(hexKey(state.routeFrom.q, state.routeFrom.r))
   const end = world.tiles.get(hexKey(state.routeTo.q, state.routeTo.r))
@@ -931,7 +948,7 @@ function refreshRoute(): void {
   const steps = path.tiles.length - 1
   routeReport.innerHTML = `<span class="route-dot"></span>${steps} 格行程 <strong>${path.cost} 移动力</strong>`
   statusLine.textContent = `路径已规划 · 共 ${steps} 格`
-  dispatchButton.disabled = !state.pendingDispatch
+  syncGameStatus()
   scheduleMap()
 }
 
@@ -954,7 +971,85 @@ function describeLocation(tile: HexTile | undefined): string {
   return city?.name ?? (tile ? `${tile.lon.toFixed(1)}°E · ${tile.lat.toFixed(1)}°N` : '未知位置')
 }
 
-/** 同步回合、军队位置和行军结果到军势面板。 */
+/** 将事件选项的即时军力与下一回合移动力效果显示为简短文案。 */
+function describeEventEffect(option: RandomEventOption): string {
+  if (option.troopsDelta) return `立即军力 ${option.troopsDelta > 0 ? '+' : ''}${option.troopsDelta}（最低为 0）`
+  if (option.movementModifierDelta) return `下一回合移动力 ${option.movementModifierDelta > 0 ? '+' : ''}${option.movementModifierDelta} · 仅一次，待命也消耗`
+  return '军力与移动力不变'
+}
+
+/** 按最近优先展示统一历史，保留战斗与事件各自的结算回合。 */
+function renderTurnLog(): void {
+  document.querySelector<HTMLElement>('#turn-log-count')!.textContent = `${gameState.turnLog.length} / 50`
+  turnLogElement.innerHTML = [...gameState.turnLog].reverse().map((entry) => {
+    if (entry.kind === 'event') {
+      return `<li><small>第 ${entry.turn} 回合 · 事件</small><strong>${entry.title} · ${entry.choice}</strong><p>${entry.result}</p></li>`
+    }
+    const battle = entry.report
+    const city = world.cities.find((candidate) => candidate.id === battle.cityId)
+    return `<li><small>第 ${entry.turn} 回合 · 战报</small><strong>${city?.name ?? '城池'} · ${battle.outcome === 'victory' ? '攻城胜利' : '攻城失利'}</strong><p>我军损失 ${battle.attackerLosses.toLocaleString('zh-CN')}，余 ${battle.attackerRemaining.toLocaleString('zh-CN')}；守军损失 ${battle.defenderLosses.toLocaleString('zh-CN')}，余 ${battle.defenderRemaining.toLocaleString('zh-CN')}。</p></li>`
+  }).join('') || '<li class="turn-log-empty">尚无战报或已处理事件。</li>'
+}
+
+/** 用原生模态弹窗暂停外部输入，并在有效选择后恢复军务与焦点。 */
+function syncPendingEvent(): void {
+  const pending = gameState.pendingEvent
+  atlasElement.inert = pending !== null
+  if (!pending) {
+    if (eventDialog.open) {
+      eventDialog.close()
+      const target = mobileViewport.matches && mobilePanel !== 'details' ? mobileDetailsButton
+        : gameState.army.status === 'defeated' ? document.querySelector<HTMLButtonElement>('#restart-campaign')! : endTurnButton
+      target.focus()
+    }
+    return
+  }
+  if (eventDialog.open) return
+  if (state.gesture) cancelMapPointer(state.gesture.pointerId, true)
+  const definition = RANDOM_EVENT_DEFINITIONS[pending.id]
+  document.querySelector<HTMLElement>('#event-turn')!.textContent = `第 ${pending.turn} 回合 · 军中来报`
+  document.querySelector<HTMLElement>('#event-title')!.textContent = definition.title
+  document.querySelector<HTMLElement>('#event-description')!.textContent = definition.description
+  eventOptionsElement.replaceChildren(...definition.options.map((option) => {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'event-option'
+    button.innerHTML = `<strong>${option.label}</strong><span>${describeEventEffect(option)}</span>`
+    button.addEventListener('click', () => {
+      if (gameState.pendingEvent !== pending) return
+      const result = resolvePendingEvent(gameState, option.id)
+      if (!result.ok) return
+      gameState = result.state
+      routeReport.textContent = `${definition.title} · ${option.result}`
+      statusLine.textContent = gameState.army.status === 'defeated' ? '军队全灭 · 此局已败' : '事件已处理 · 可继续军务'
+      if (gameState.army.status === 'defeated') clearRoutePreview()
+      updateSelection()
+      syncGameStatus()
+      scheduleMap()
+    })
+    return button
+  }))
+  eventDialog.showModal()
+  eventOptionsElement.querySelector<HTMLButtonElement>('button')?.focus()
+}
+
+/** 清除尚未派遣的预览和选点状态，避免结算或重开后沿用旧路线。 */
+function clearRoutePreview(): void {
+  state.route = []
+  state.routeCost = 0
+  state.routeStart = null
+  state.routeFrom = null
+  state.routeTo = null
+  state.pathMode = false
+  state.armyPlanning = false
+  state.pendingDispatch = false
+  armyPlanButton.setAttribute('aria-pressed', 'false')
+  armyPlanButton.textContent = '选择出征目的地'
+  routeButton.classList.remove('tool-button--active')
+  routeButton.setAttribute('aria-pressed', 'false')
+}
+
+/** 同步回合、军队位置、临时效果、操作锁定与事件界面。 */
 function syncGameStatus(movementSummary?: string): void {
   turnNumberElement.textContent = `第 ${gameState.turn} 回合`
   const location = describeLocation(world.tiles.get(gameState.army.positionKey))
@@ -972,14 +1067,23 @@ function syncGameStatus(movementSummary?: string): void {
   const battleSummary = battle
     ? `${world.cities.find((city) => city.id === battle.cityId)?.name}战报：${battle.outcome === 'victory' ? '攻城胜利并占领' : '攻城失利'} · 我军损失 ${battle.attackerLosses.toLocaleString('zh-CN')} · 守军损失 ${battle.defenderLosses.toLocaleString('zh-CN')}`
     : ''
-  gameStatusElement.innerHTML = `<strong><i class="faction-dot" style="--faction:${faction.color}"></i>${faction.name} · ${status}</strong><span>军力 ${gameState.army.troops.toLocaleString('zh-CN')} · ${movementSummary ?? `每回合最多移动 ${TURN_MOVEMENT_BUDGET} 点`}</span>${battleSummary ? `<span class="battle-status">${battleSummary}</span>` : ''}`
-  endTurnButton.disabled = gameState.army.status !== 'marching'
-  armyPlanButton.disabled = gameState.army.status === 'marching' || gameState.army.status === 'defeated'
-  unitSelect.disabled = gameState.army.status === 'marching' || gameState.army.status === 'defeated'
-  boatToggle.disabled = gameState.army.status === 'marching' || gameState.army.status === 'defeated'
-  plankToggle.disabled = gameState.army.status === 'marching' || gameState.army.status === 'defeated'
-  dispatchButton.disabled = !state.pendingDispatch || state.route.length < 2 || gameState.army.status === 'marching' || gameState.army.status === 'defeated'
-  document.querySelector<HTMLButtonElement>('#restart-campaign')!.hidden = gameState.army.status !== 'defeated'
+  const pending = gameState.pendingEvent !== null
+  const defeated = gameState.army.status === 'defeated' || gameState.army.troops === 0
+  const armyLocked = pending || defeated || gameState.army.status === 'marching'
+  const modifier = gameState.nextTurnMovementModifier
+  const movementEffect = modifier ? `<span class="movement-effect">下一回合移动力 ${TURN_MOVEMENT_BUDGET + modifier}（${modifier > 0 ? '+' : ''}${modifier}）· 仅一次，待命也消耗</span>` : ''
+  gameStatusElement.innerHTML = `<strong><i class="faction-dot" style="--faction:${faction.color}"></i>${faction.name} · ${status}</strong><span>军力 ${gameState.army.troops.toLocaleString('zh-CN')} · ${movementSummary ?? `每回合最多移动 ${TURN_MOVEMENT_BUDGET} 点`}</span>${movementEffect}${pending ? '<span class="battle-status">事件待处理 · 军务暂停</span>' : ''}${battleSummary ? `<span class="battle-status">${battleSummary}</span>` : ''}`
+  endTurnButton.disabled = pending || defeated
+  armyPlanButton.disabled = armyLocked
+  unitSelect.disabled = armyLocked
+  boatToggle.disabled = armyLocked
+  plankToggle.disabled = armyLocked
+  routeButton.disabled = pending
+  document.querySelector<HTMLButtonElement>('#clear-route')!.disabled = pending
+  dispatchButton.disabled = !state.pendingDispatch || state.route.length < 2 || armyLocked
+  document.querySelector<HTMLButtonElement>('#restart-campaign')!.hidden = !defeated
+  renderTurnLog()
+  syncPendingEvent()
 }
 
 /** 从界面读取步兵、骑兵、辎重及工具选项。 */
@@ -1054,6 +1158,14 @@ function renderCityList(): void {
 
 /** 绑定地图手势、移动面板、缩放、兵种、筛选和图层控制。 */
 function initializeControls(): void {
+  for (const type of ['click', 'input', 'change', 'wheel', 'pointerdown', 'pointermove', 'pointerup']) {
+    atlasElement.addEventListener(type, (event) => {
+      if (!gameState.pendingEvent) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }, { capture: true, passive: false })
+  }
+  eventDialog.addEventListener('cancel', (event) => event.preventDefault())
   mapCanvas.addEventListener('pointerdown', handleMapPointerDown)
   mapCanvas.addEventListener('pointermove', handleMapPointerMove)
   mapCanvas.addEventListener('pointerup', handleMapPointerUp)
@@ -1105,7 +1217,14 @@ function initializeControls(): void {
   document.querySelector<HTMLButtonElement>('#locate-city')?.addEventListener('click', () => selectCity(state.city))
   document.querySelectorAll<HTMLButtonElement>('[data-start-faction]').forEach((button) => button.addEventListener('click', () => {
     const faction = button.dataset.startFaction as FactionId
+    if (gameState.pendingEvent) return
     gameState = createInitialGameState(world, faction)
+    clearRoutePreview()
+    unitSelect.value = gameState.army.movementOptions.unit
+    boatToggle.checked = gameState.army.movementOptions.boat
+    plankToggle.checked = gameState.army.movementOptions.plank
+    routeReport.innerHTML = '<span class="route-dot"></span>尚未规划路线'
+    statusLine.textContent = '军队待命 · 可派遣或结束回合'
     const city = world.cities.find((entry) => entry.id === FACTION_START_CITY[faction])!
     state.city = city
     state.selectedTile = world.tiles.get(hexKey(city.q, city.r)) ?? null
