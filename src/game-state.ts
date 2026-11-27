@@ -1,7 +1,7 @@
 import type { FactionId, MovementOptions, World } from './world'
 import { findPath, hexKey, movementCost } from './world'
 import { resolveCombat, type CombatResult } from './combat'
-import { DEFAULT_EVENT_SEED, resolveRandomEventChoice, rollRandomEvent, type PendingEvent, type RandomEventId } from './events'
+import { DEFAULT_EVENT_SEED, RANDOM_EVENT_DEFINITIONS, resolveRandomEventChoice, rollRandomEvent, type PendingEvent, type RandomEventId } from './events'
 
 export const TURN_MOVEMENT_BUDGET = 6
 export const INITIAL_ARMY_TROOPS = 10_000
